@@ -8,249 +8,161 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-mongoose.connect(
-process.env.MONGO_URI || "mongodb://127.0.0.1:27017/locationtracker"
-)
-.then(() => console.log("MongoDB Connected"))
-.catch(err => console.error(err));
+// ===== DB =====
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log("MongoDB Connected"))
+  .catch(err => console.log("DB Error:", err));
 
+// ===== MODEL =====
 const LocationSchema = new mongoose.Schema({
-linkId: String,
-lat: Number,
-lng: Number,
-time: {
-type: Date,
-default: Date.now
-}
+  linkId: String,
+  lat: Number,
+  lng: Number,
+  time: { type: Date, default: Date.now }
+});
+
+const LinkSchema = new mongoose.Schema({
+  linkId: String,
+  createdAt: { type: Date, default: Date.now }
 });
 
 const Location = mongoose.model("Location", LocationSchema);
+const Link = mongoose.model("Link", LinkSchema);
 
+// ===== ADMIN PAGE =====
 app.get("/", (req, res) => {
-
-res.send(`
-
+  res.send(`
 <!DOCTYPE html>
-
 <html>
-<head>
-<meta charset="utf-8">
-<title>Admin</title>
-<style>
-body{
-  font-family:Arial;
-  background:#f5f5f5;
-  padding:20px;
-}
-button{
-  padding:10px 20px;
-}
-.card{
-  background:#fff;
-  padding:10px;
-  margin-top:10px;
-  border-radius:8px;
-}
-</style>
-</head>
 <body>
+<h2>Admin Panel</h2>
 
-<h1>Location Tracker Admin</h1>
-
-<button onclick="generateLink()">Generate Link</button>
-
+<button onclick="gen()">Generate Link</button>
 <p id="link"></p>
 
-<div id="locations"></div>
+<h3>Live + History</h3>
+<div id="data"></div>
 
 <script src="/socket.io/socket.io.js"></script>
-
 <script>
-
 const socket = io();
 
-async function generateLink(){
-
-  const res = await fetch('/new-link');
-  const data = await res.json();
-
+async function gen(){
+  const r = await fetch('/new-link');
+  const d = await r.json();
   document.getElementById('link').innerHTML =
-    '<a href="' + data.url + '" target="_blank">' +
-    data.url +
-    '</a>';
+  '<a target="_blank" href="'+d.url+'">'+d.url+'</a>';
 }
 
-socket.on('location', data => {
-
-  const html =
-    '<div class="card">' +
-    '<b>ID:</b> ' + data.id + '<br>' +
-    '<b>Lat:</b> ' + data.lat + '<br>' +
-    '<b>Lng:</b> ' + data.lng + '<br>' +
-    '<b>Time:</b> ' + new Date().toLocaleString() + '<br>' +
-    '<a target="_blank" href="/history/' + data.id + '">History</a>' +
-    '</div>';
-
-  document.getElementById('locations').innerHTML =
-    html + document.getElementById('locations').innerHTML;
+// live updates
+socket.on('location', d => {
+  document.getElementById('data').innerHTML =
+  '<pre>'+JSON.stringify(d,null,2)+'</pre>' +
+  document.getElementById('data').innerHTML;
 });
-
 </script>
-
 </body>
 </html>
-`);
-
+  `);
 });
 
-app.get("/new-link", (req, res) => {
+// ===== CREATE LINK (10 DAYS VALID) =====
+app.get("/new-link", async (req, res) => {
 
-const id = randomUUID();
+  const id = randomUUID();
 
-const baseUrl =
-process.env.BASE_URL ||
-(req.protocol + "://" + req.get("host"));
+  await Link.create({ linkId: id });
 
-res.json({
-id,
-url: baseUrl + "/track/" + id
+  const baseUrl =
+    process.env.BASE_URL ||
+    ("https://" + req.get("host"));
+
+  res.json({
+    id,
+    url: baseUrl + "/track/" + id
+  });
 });
 
-});
-
+// ===== TRACK PAGE =====
 app.get("/track/:id", (req, res) => {
 
-const id = req.params.id;
-
-res.send(`
-
+  res.send(`
 <!DOCTYPE html>
-
 <html>
-<head>
-<meta charset="utf-8">
-<title>Share Location</title>
-<style>
-body{
-  font-family:Arial;
-  display:flex;
-  justify-content:center;
-  align-items:center;
-  height:100vh;
-  background:#f5f5f5;
-}
-.box{
-  background:white;
-  padding:20px;
-  border-radius:10px;
-}
-</style>
-</head>
 <body>
-
-<div class="box">
-  <h2>Location Sharing Active</h2>
-  <p id="status">Waiting for permission...</p>
-</div>
+<h3>Sharing Location...</h3>
+<p id="status">Waiting</p>
 
 <script src="/socket.io/socket.io.js"></script>
-
 <script>
 
 const socket = io();
-const id = "${id}";
+const id = "${req.params.id}";
 
-function sendLocation(){
+function send(){
 
-  navigator.geolocation.getCurrentPosition(
+navigator.geolocation.getCurrentPosition(pos => {
 
-    function(position){
-
-      document.getElementById('status').innerText =
-        'Location sent';
-
-      socket.emit('location',{
-        id:id,
-        lat:position.coords.latitude,
-        lng:position.coords.longitude
-      });
-
-    },
-
-    function(){
-
-      document.getElementById('status').innerText =
-        'Permission denied';
-
-    }
-
-  );
-}
-
-sendLocation();
-
-setInterval(sendLocation, 5000);
-
-</script>
-
-</body>
-</html>
-`);
-
-});
-
-io.on("connection", socket => {
-
-socket.on("location", async data => {
-
-```
-try {
-
-  await Location.create({
-    linkId: data.id,
-    lat: data.lat,
-    lng: data.lng
+  socket.emit("location", {
+    id,
+    lat: pos.coords.latitude,
+    lng: pos.coords.longitude
   });
 
-  io.emit("location", data);
+  document.getElementById("status").innerText = "Sent";
 
-} catch(err) {
-
-  console.error(err);
+});
 
 }
-```
+
+send();
+setInterval(send, 5000);
+
+</script>
+</body>
+</html>
+  `);
+});
+
+// ===== SOCKET =====
+io.on("connection", socket => {
+
+  socket.on("location", async data => {
+
+    await Location.create({
+      linkId: data.id,
+      lat: data.lat,
+      lng: data.lng
+    });
+
+    io.emit("location", data);
+  });
 
 });
 
-});
-
+// ===== HISTORY (ADMIN USE) =====
 app.get("/history/:id", async (req, res) => {
 
-try {
+  const data = await Location.find({ linkId: req.params.id })
+    .sort({ time: -1 });
 
-```
-const history = await Location.find({
-  linkId: req.params.id
-}).sort({ time: -1 });
-
-res.json(history);
-```
-
-} catch(err) {
-
-```
-res.status(500).json({
-  error: err.message
-});
-```
-
-}
-
+  res.json(data);
 });
 
+// ===== AUTO DELETE AFTER 10 DAYS =====
+setInterval(async () => {
+
+  const tenDays = 10 * 24 * 60 * 60 * 1000;
+  const limit = new Date(Date.now() - tenDays);
+
+  await Location.deleteMany({ time: { $lt: limit } });
+  await Link.deleteMany({ createdAt: { $lt: limit } });
+
+}, 60 * 60 * 1000); // every 1 hour
+
+// ===== START =====
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-console.log("Server running on port", PORT);
+  console.log("Server running on", PORT);
 });
