@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: pulse-location-share
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: DATA_DIR
+        value: /var/data
+    disk:
+      name: pulse-data
+      mountPath: /var/data
+      sizeGB: 1

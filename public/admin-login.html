@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse — Admin sign in</title>
+<link rel="stylesheet" href="/css/styles.css" />
+<style>
+  body { display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 1.25rem; }
+  .card { width: 100%; max-width: 360px; padding: 2.25rem 1.75rem; }
+  h1 { font-size: 1.3rem; margin-bottom: 0.4rem; }
+  input {
+    width: 100%; padding: 0.75rem 0.9rem; margin-top: 1rem;
+    border: 1px solid var(--mist); border-radius: 10px; font-size: 0.95rem;
+    font-family: var(--font-body);
+  }
+  input:focus { outline: 2px solid var(--signal); border-color: var(--signal); }
+  .btn-primary { width: 100%; margin-top: 1.1rem; }
+  .err { color: var(--ember); font-size: 0.85rem; margin-top: 0.6rem; display: none; }
+</style>
+</head>
+<body>
+  <form class="card" id="login-form">
+    <p class="eyebrow">Pulse admin</p>
+    <h1>Sign in</h1>
+    <p class="muted" style="font-size:0.88rem;">Enter the admin password to manage sharing links.</p>
+    <input type="password" id="password" placeholder="Password" autofocus required />
+    <button class="btn-primary" type="submit">Sign in</button>
+    <p class="err" id="err">Incorrect password.</p>
+  </form>
+
+<script>
+  const form = document.getElementById('login-form');
+  const err = document.getElementById('err');
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    err.style.display = 'none';
+    const password = document.getElementById('password').value;
+    const res = await fetch('/api/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    });
+    if (res.ok) {
+      window.location.href = '/admin';
+    } else {
+      err.style.display = 'block';
+    }
+  });
+</script>
+</body>
+</html>

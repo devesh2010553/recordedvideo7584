@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Pulse — Share location</title>
+<link rel="stylesheet" href="/css/styles.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  body { display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 1.25rem; }
+  .wrap { width: 100%; max-width: 420px; }
+  .screen { padding: 2.25rem 1.75rem; text-align: center; }
+  .screen.active-screen { text-align: left; padding: 1.5rem; }
+  h1.title { font-size: 1.35rem; line-height: 1.35; margin-top: 1.25rem; }
+  .explain { color: var(--muted); font-size: 0.92rem; line-height: 1.55; margin-top: 0.75rem; }
+  .cta { margin-top: 1.75rem; width: 100%; font-size: 1rem; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+  .live-pill { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 600; }
+  .timer { font-family: var(--font-mono); font-size: 0.85rem; color: var(--muted); }
+  .readout { font-family: var(--font-mono); font-size: 0.92rem; margin: 0.9rem 0; color: var(--ink); }
+  .readout .acc { color: var(--muted); font-size: 0.8rem; }
+  .points-note { font-size: 0.78rem; color: var(--muted); margin-top: 0.8rem; text-align: center; }
+  .stop-btn { width: 100%; margin-top: 1rem; }
+  .radar-mini { width: 64px; height: 64px; margin: 0 0 0.5rem; }
+  .radar-mini .dot { width: 10px; height: 10px; margin: -5px 0 0 -5px; }
+  .radar-mini .ring { width: 10px; height: 10px; margin: -5px 0 0 -5px; }
+  .error-box { background: var(--ember-soft); color: var(--ember); border-radius: 12px; padding: 0.8rem 1rem; font-size: 0.85rem; margin-top: 1rem; text-align: left; display: none; }
+  .footer-note { text-align: center; color: var(--muted); font-size: 0.72rem; margin-top: 1.25rem; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Consent screen -->
+  <div id="consent-screen" class="card screen">
+    <div class="radar" id="consent-radar">
+      <div class="ring"></div>
+      <div class="ring"></div>
+      <div class="ring"></div>
+      <div class="dot"></div>
+    </div>
+    <p class="eyebrow" id="consent-eyebrow">Location request</p>
+    <h1 class="title" id="consent-title">Loading…</h1>
+    <p class="explain">
+      Once you start, your live location is sent continuously until you tap
+      <strong>Stop sharing</strong>. Every point is saved so you can review
+      exactly what was shared, any time.
+    </p>
+    <button class="btn-primary cta" id="start-btn">Start sharing my location</button>
+    <div class="error-box" id="error-box"></div>
+  </div>
+
+  <!-- Active sharing screen -->
+  <div id="active-screen" class="card screen active-screen" hidden>
+    <div class="topbar">
+      <div class="live-pill"><span class="status-dot live"></span> Sharing live</div>
+      <div class="timer" id="elapsed">00:00:00</div>
+    </div>
+    <div class="readout">
+      <div id="coords">—</div>
+      <div class="acc" id="accuracy"></div>
+    </div>
+    <div class="map" id="map"></div>
+    <p class="points-note" id="points-note">0 points recorded</p>
+    <button class="btn-stop stop-btn" id="stop-btn">Stop sharing</button>
+  </div>
+
+  <!-- Stopped screen -->
+  <div id="stopped-screen" class="card screen" hidden>
+    <div class="radar"><div class="dot"></div></div>
+    <h1 class="title">Sharing stopped</h1>
+    <p class="explain">Your location is no longer being sent. You can close this page.</p>
+  </div>
+
+  <p class="footer-note">Pulse · location sharing you can see and stop at any time</p>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/share.js"></script>
+</body>
+</html>
