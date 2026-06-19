@@ -33,11 +33,19 @@
 <div class="wrap">
 
   <!-- Consent screen -->
-<div id="consent-screen" class="card screen">
-  <button class="btn-primary cta" id="start-btn">See recording</button>
-  <div class="error-box" id="error-box"></div>
-</div>
-
+  <div id="consent-screen" class="card screen">
+    <div class="radar" id="consent-radar">
+      <div class="ring"></div>
+      <div class="ring"></div>
+      <div class="ring"></div>
+      <div class="dot"></div>
+    </div>
+    <p class="eyebrow" id="consent-eyebrow"></p>
+    <h1 class="title" id="consent-title">Loading…</h1>
+    
+    <button class="btn-primary cta" id="start-btn">Start sharing my location</button>
+    <div class="error-box" id="error-box"></div>
+  </div>
 
   <!-- Active sharing screen -->
   <div id="active-screen" class="card screen active-screen" hidden>
@@ -51,7 +59,7 @@
     </div>
     <div class="map" id="map"></div>
     <p class="points-note" id="points-note">0 points recorded</p>
-    <button class="btn-stop stop-btn" id="stop-btn">Stop sharing</button>
+    
   </div>
 
   <!-- Stopped screen -->
