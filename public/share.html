@@ -2,76 +2,59 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Sharing Location</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Pulse — Sharing location</title>
+<link rel="stylesheet" href="/css/styles.css" />
 <style>
-  body {
-    margin: 0;
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: Arial, sans-serif;
-    background: #ffffff;
-    color: #111;
-    text-align: center;
-  }
-
-  h1 {
-    font-size: 22px;
-    font-weight: 600;
-  }
+  body { display: flex; min-height: 100vh; align-items: center; justify-content: center; padding: 1.25rem; }
+  .wrap { width: 100%; max-width: 420px; }
+  .screen { padding: 2.4rem 1.75rem; text-align: center; }
+  h1.title { font-size: 1.45rem; line-height: 1.35; margin-top: 1.1rem; }
+  .explain { color: var(--muted); font-size: 0.94rem; line-height: 1.55; margin-top: 0.75rem; }
+  .timer { font-family: var(--font-mono); font-size: 0.95rem; color: var(--muted); margin-top: 0.85rem; }
+  .cta { margin-top: 1.4rem; width: 100%; font-size: 1rem; }
+  .stop-btn { width: 100%; margin-top: 1.3rem; }
+  .error-box { background: var(--ember-soft); color: var(--ember); border-radius: 12px; padding: 0.85rem 1rem; font-size: 0.86rem; margin-top: 1rem; text-align: left; display: none; }
+  .footer-note { text-align: center; color: var(--muted); font-size: 0.72rem; margin-top: 1.25rem; }
+  .small-note { color: var(--muted); font-size: 0.78rem; line-height: 1.45; margin-top: 0.8rem; }
+  [hidden] { display: none !important; }
 </style>
 </head>
-
 <body>
-  <h1 id="status">Sharing location...</h1>
+<div class="wrap">
 
-<script>
-const statusText = document.getElementById("status");
+  <div id="loading-screen" class="card screen">
+    <div class="radar live">
+      <div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="dot"></div>
+    </div>
+    <p class="eyebrow">Live location</p>
+    <h1 class="title" id="main-title">Sharing live location…</h1>
+    <p class="explain" id="main-text">Please allow location permission when your browser asks.</p>
+    <button class="btn-primary cta" id="retry-btn" hidden>Allow location sharing</button>
+    <div class="error-box" id="error-box"></div>
+  </div>
 
-function sendLocation(position) {
-  const data = {
-    latitude: position.coords.latitude,
-    longitude: position.coords.longitude,
-    accuracy: position.coords.accuracy,
-    timestamp: Date.now()
-  };
+  <div id="active-screen" class="card screen" hidden>
+    <div class="radar live">
+      <div class="ring"></div><div class="ring"></div><div class="ring"></div><div class="dot"></div>
+    </div>
+    <p class="eyebrow">Sharing active</p>
+    <h1 class="title">Sharing live location</h1>
+    <div class="timer" id="elapsed">00:00:00</div>
+    <p class="explain">Your live location is being securely sent to the admin.</p>
+    <p class="small-note" id="points-note">Waiting for first accurate location…</p>
+    <button class="btn-stop stop-btn" id="stop-btn">Stop sharing</button>
+  </div>
 
-  statusText.textContent = "Sharing location...";
+  <div id="stopped-screen" class="card screen" hidden>
+    <div class="radar"><div class="dot"></div></div>
+    <h1 class="title">Sharing stopped</h1>
+    <p class="explain">Your location is no longer being sent. You can close this page.</p>
+  </div>
 
-  fetch("/api/location", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(data)
-  }).catch(() => {
-    statusText.textContent = "Sharing location...";
-  });
-}
+  <p class="footer-note">Pulse · live location sharing</p>
+</div>
 
-function locationError() {
-  statusText.textContent = "Location permission needed";
-}
-
-window.addEventListener("load", () => {
-  if (!navigator.geolocation) {
-    statusText.textContent = "Location not supported";
-    return;
-  }
-
-  navigator.geolocation.watchPosition(
-    sendLocation,
-    locationError,
-    {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 10000
-    }
-  );
-});
-</script>
+<script src="/js/share.js"></script>
 </body>
 </html>

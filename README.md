@@ -1,123 +1,94 @@
-# Pulse — consensual live location sharing
+# Pulse Live Location Share
 
-A small Node/Express app for one admin to send people a link that lets them
-share their live location, on their own terms, for as long as they choose.
+A simple admin-controlled live-location sharing project with:
 
-## What it does
+- MongoDB storage for all sharing links and full location history
+- Admin map with live WebSocket updates
+- Full saved history table with time, latitude, longitude, accuracy, and Google Maps link
+- Admin can clear location history or delete the full link/history
+- Web Push/VAPID notifications for admin when sharing starts and when first location is received
+- Simple sharing page: the person sharing only sees text that live location is being shared, no map and no coordinates
 
-- **Admin creates a link** from a simple dashboard (e.g. "Dad's drive home").
-- **Recipient opens the link** and sees exactly who's asking and what
-  happens next, before anything is shared. They tap **Start sharing** to
-  begin.
-- **Location streams live** to the admin's dashboard while a visible
-  **"Sharing live"** banner and a **Stop sharing** button stay on the
-  recipient's screen the entire time.
-- **Full history is saved** — every point, with a timestamp — viewable by
-  the admin at any time, even after the session ends.
-- **The admin gets a push notification** the moment sharing starts or stops,
-  via Web Push + VAPID, which works even if the admin's browser/app is
-  closed (the OS wakes the service worker).
+## Important browser rule
 
-## What it deliberately does *not* do
-
-- It does not start sharing location with zero interaction. Browsers
-  require an explicit permission prompt for geolocation, and this app
-  additionally shows the recipient a plain-language explanation before
-  that prompt appears. That's a one-tap start, not a hidden one.
-- It does not capture photos from the recipient's camera under any
-  pretext (e.g. a fake "bot check"). If you want an identity-confirmation
-  step, the honest version of that is an explicit, clearly labeled
-  "Take a selfie to confirm it's you" step the person agrees to — happy to
-  add that if useful, but it won't be disguised as something else.
-
-## Project structure
-
-```
-server.js            Express app: auth, session/link API, push, websocket
-store.js             File-backed data store (sessions + push subscriptions)
-scripts/
-  generate-vapid.js  One-off script to generate a VAPID keypair
-public/
-  share.html / js/share.js     Recipient-facing consent + live screen
-  admin.html / js/admin.js     Admin dashboard
-  admin-login.html             Admin sign-in
-  link-not-found.html          Shown for invalid/expired links
-  sw.js                        Service worker (handles push in background)
-  icons/                       Notification icons
-data/
-  db.json             Created automatically; holds all session + sub data
-```
+A website cannot silently take location without browser permission. This app asks for location automatically when the share page opens, but the browser/user must allow the permission. If the browser blocks automatic permission prompts, the page shows an `Allow location sharing` button.
 
 ## Local setup
 
 ```bash
 npm install
 cp .env.example .env
-npm run generate-vapid   # paste the two keys it prints into .env
+npm run generate-vapid
 ```
 
-Edit `.env`:
-- `ADMIN_PASSWORD` — whatever you want to log into `/admin` with
-- `SESSION_SECRET` — any long random string
-- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` — from `generate-vapid`
+Paste the generated keys into `.env`:
+
+```env
+VAPID_PUBLIC_KEY=...
+VAPID_PRIVATE_KEY=...
+```
+
+Also add MongoDB:
+
+```env
+MONGODB_URI=mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/pulse_location_share?retryWrites=true&w=majority
+MONGODB_DB=pulse_location_share
+ADMIN_PASSWORD=your-admin-password
+SESSION_SECRET=any-long-random-string
+VAPID_SUBJECT=mailto:your-email@example.com
+```
+
+Start:
 
 ```bash
 npm start
 ```
 
-Visit `http://localhost:3000/admin-login.html`, sign in, create a link, and
-open the generated `/share/...` URL (in another browser/incognito window,
-or on your phone) to try the recipient side.
+Open:
 
-## Deploying on Render
+```text
+http://localhost:3000/admin
+```
 
-### Option A — Blueprint (recommended)
+## Render deployment
 
-This repo includes a `render.yaml`. In the Render dashboard: **New >
-Blueprint**, point it at your repo, and Render will provision the web
-service plus a small persistent disk for `data/db.json` (so your link
-history survives restarts and deploys — Render's regular filesystem is
-otherwise wiped on each deploy).
+Build command:
 
-You'll be prompted to fill in `ADMIN_PASSWORD`, `VAPID_PUBLIC_KEY`, and
-`VAPID_PRIVATE_KEY` (run `npm run generate-vapid` locally first and paste
-the values in). `SESSION_SECRET` is generated for you automatically.
+```bash
+npm install
+```
 
-### Option B — Manual web service
+Start command:
 
-1. **New > Web Service**, connect your repo.
-2. Build command: `npm install`. Start command: `npm start`.
-3. Add environment variables: `ADMIN_PASSWORD`, `SESSION_SECRET`,
-   `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`.
-4. Add a **Disk** (Render dashboard > your service > Disks), mount path
-   `/var/data`, and set the env var `DATA_DIR=/var/data` so the JSON store
-   writes there instead of the ephemeral app filesystem.
+```bash
+npm start
+```
 
-Render gives you HTTPS automatically, which is required — browsers refuse
-geolocation and push permissions on plain HTTP (other than localhost).
+Required Render environment variables:
 
-## How the pieces fit together
+```env
+MONGODB_URI=your MongoDB Atlas connection string
+MONGODB_DB=pulse_location_share
+ADMIN_PASSWORD=your admin password
+SESSION_SECRET=long random secret
+VAPID_PUBLIC_KEY=generated public key
+VAPID_PRIVATE_KEY=generated private key
+VAPID_SUBJECT=mailto:your-email@example.com
+```
 
-- **Auth** is a single shared `ADMIN_PASSWORD` plus an HMAC-signed cookie —
-  enough for a one-admin tool, not a multi-user system. If you need
-  multiple admins or stronger session control (e.g. forced logout from a
-  lost device), swap in a real auth library and session store.
-- **Storage** is a flat JSON file via `store.js`. Every function the rest
-  of the app needs (`createSession`, `appendLocation`, etc.) is isolated
-  there, so swapping in Postgres or another database later only means
-  rewriting that one file.
-- **Live updates** on the admin dashboard use a WebSocket so the map moves
-  in real time while the dashboard tab is open; **push notifications**
-  cover the moments the admin isn't looking, including when their browser
-  is closed.
-- **iOS note:** Apple requires a site be "Added to Home Screen" before
-  background web push will work in Safari. Push works normally in
-  Chrome/Edge/Firefox on desktop and Android without that step.
+## Push notification notes
 
-## Honest framing for recipients
+- Web Push needs HTTPS in production. Render HTTPS works.
+- On Android Chrome/Edge, normal web push works after admin enables alerts.
+- On iPhone/iOS Safari, push notifications work only for sites added to the Home Screen, because of Apple's browser rules.
+- Admin must open `/admin`, login, and click `Enable alerts` once.
 
-The consent screen's copy was written so the person sharing always knows:
-who's asking, that it's continuous until they stop it, that it's logged,
-and exactly how to stop it. If you reuse or restyle this UI, keep that
-information present and truthful — it's what keeps this a tool people
-choose to use rather than something done to them.
+## Share flow
+
+1. Admin logs in at `/admin`.
+2. Admin creates a sharing link.
+3. Admin sends the `/share/<id>` link to the person.
+4. Share page opens and requests location permission.
+5. The person only sees `Sharing live location` and a stop button.
+6. Admin sees live map + saved history.
+7. History stays in MongoDB until admin clears history or deletes the link.

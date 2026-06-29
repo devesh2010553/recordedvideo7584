@@ -19,7 +19,7 @@ const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
-    'mailto:admin@example.com',
+    process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
     VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY
   );
@@ -45,7 +45,10 @@ function verify(signed) {
   if (idx === -1) return null;
   const value = signed.slice(0, idx);
   const expected = sign(value);
-  return crypto.timingSafeEqual(Buffer.from(signed), Buffer.from(expected)) ? value : null;
+  const signedBuffer = Buffer.from(signed);
+  const expectedBuffer = Buffer.from(expected);
+  if (signedBuffer.length !== expectedBuffer.length) return null;
+  return crypto.timingSafeEqual(signedBuffer, expectedBuffer) ? value : null;
 }
 
 function parseCookies(req) {
@@ -100,52 +103,59 @@ app.get('/api/admin/vapid-public-key', (req, res) => {
   res.json({ publicKey: VAPID_PUBLIC_KEY || null });
 });
 
-app.post('/api/admin/subscribe', requireAdmin, (req, res) => {
+app.post('/api/admin/subscribe', requireAdmin, async (req, res) => {
   const subscription = req.body;
   if (!subscription || !subscription.endpoint) {
     return res.status(400).json({ error: 'Invalid subscription' });
   }
-  store.addAdminSubscription(subscription);
+  await store.addAdminSubscription(subscription);
   res.json({ ok: true });
 });
 
-app.post('/api/admin/unsubscribe', requireAdmin, (req, res) => {
+app.post('/api/admin/unsubscribe', requireAdmin, async (req, res) => {
   const { endpoint } = req.body || {};
-  if (endpoint) store.removeAdminSubscription(endpoint);
+  if (endpoint) await store.removeAdminSubscription(endpoint);
   res.json({ ok: true });
 });
 
-app.get('/api/admin/sessions', requireAdmin, (req, res) => {
-  res.json(store.listSessions());
+app.get('/api/admin/sessions', requireAdmin, async (req, res) => {
+  res.json(await store.listSessions());
 });
 
-app.get('/api/admin/sessions/:id', requireAdmin, (req, res) => {
-  const session = store.getSession(req.params.id);
+app.get('/api/admin/sessions/:id', requireAdmin, async (req, res) => {
+  const session = await store.getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'Not found' });
   res.json(session);
 });
 
-app.post('/api/admin/sessions', requireAdmin, (req, res) => {
+app.post('/api/admin/sessions', requireAdmin, async (req, res) => {
   const { label } = req.body || {};
-  const session = store.createSession(label);
+  const session = await store.createSession(label);
   res.json(session);
 });
 
-app.delete('/api/admin/sessions/:id', requireAdmin, (req, res) => {
-  store.deleteSession(req.params.id);
+app.delete('/api/admin/sessions/:id', requireAdmin, async (req, res) => {
+  await store.deleteSession(req.params.id);
   res.json({ ok: true });
+});
+
+app.delete('/api/admin/sessions/:id/history', requireAdmin, async (req, res) => {
+  const session = await store.clearSessionHistory(req.params.id);
+  if (!session) return res.status(404).json({ error: 'Not found' });
+  broadcastToAdmins({ type: 'history-cleared', session });
+  res.json(session);
 });
 
 // ---------- Public share-link routes (token-based, no login for the recipient) ----------
 
-app.get('/share/:id', (req, res) => {
-  const session = store.getSession(req.params.id);
+app.get('/share/:id', async (req, res) => {
+  const session = await store.getSession(req.params.id);
   if (!session) return res.status(404).sendFile(path.join(__dirname, 'public', 'link-not-found.html'));
   res.sendFile(path.join(__dirname, 'public', 'share.html'));
 });
 
-app.get('/api/share/:id', (req, res) => {
-  const session = store.getSession(req.params.id);
+app.get('/api/share/:id', async (req, res) => {
+  const session = await store.getSession(req.params.id);
   if (!session) return res.status(404).json({ error: 'Link not found or expired' });
   res.json({
     id: session.id,
@@ -155,7 +165,7 @@ app.get('/api/share/:id', (req, res) => {
 });
 
 app.post('/api/share/:id/start', async (req, res) => {
-  const session = store.startSharing(req.params.id);
+  const session = await store.startSharing(req.params.id);
   if (!session) return res.status(404).json({ error: 'Link not found or expired' });
   await notifyAdmins({
     title: 'Location sharing started',
@@ -172,14 +182,21 @@ app.post('/api/share/:id/location', async (req, res) => {
     return res.status(400).json({ error: 'lat and lng are required numbers' });
   }
   const point = { lat, lng, accuracy: accuracy ?? null, timestamp: new Date().toISOString() };
-  const session = store.appendLocation(req.params.id, point);
+  const session = await store.appendLocation(req.params.id, point);
   if (!session) return res.status(404).json({ error: 'Link not found or expired' });
+  if (session.locations.length === 1) {
+    await notifyAdmins({
+      title: 'First location received',
+      body: `${session.label} is now sharing live location.`,
+      sessionId: session.id,
+    });
+  }
   broadcastToAdmins({ type: 'location', sessionId: session.id, point });
   res.json({ ok: true });
 });
 
 app.post('/api/share/:id/stop', async (req, res) => {
-  const session = store.stopSharing(req.params.id);
+  const session = await store.stopSharing(req.params.id);
   if (!session) return res.status(404).json({ error: 'Link not found or expired' });
   await notifyAdmins({
     title: 'Location sharing stopped',
@@ -194,7 +211,7 @@ app.post('/api/share/:id/stop', async (req, res) => {
 
 async function notifyAdmins({ title, body, sessionId }) {
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
-  const subscriptions = store.listAdminSubscriptions();
+  const subscriptions = await store.listAdminSubscriptions();
   const payload = JSON.stringify({ title, body, sessionId });
   await Promise.all(
     subscriptions.map(async (sub) => {
@@ -202,7 +219,7 @@ async function notifyAdmins({ title, body, sessionId }) {
         await webpush.sendNotification(sub, payload);
       } catch (err) {
         if (err.statusCode === 404 || err.statusCode === 410) {
-          store.removeAdminSubscription(sub.endpoint);
+          await store.removeAdminSubscription(sub.endpoint);
         } else {
           console.error('Push error:', err.message);
         }
@@ -234,6 +251,16 @@ function broadcastToAdmins(message) {
   }
 }
 
-server.listen(PORT, () => {
-  console.log(`Live location share server running on port ${PORT}`);
-});
+async function startServer() {
+  try {
+    await store.init();
+    server.listen(PORT, () => {
+      console.log(`Live location share server running on port ${PORT}`);
+    });
+  } catch (err) {
+    console.error('Failed to start server:', err.message);
+    process.exit(1);
+  }
+}
+
+startServer();

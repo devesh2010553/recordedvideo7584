@@ -51,8 +51,16 @@
   .detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.9rem; }
   .detail-title { font-size: 1.1rem; }
   .stat-row { display: flex; gap: 1.4rem; margin-top: 1rem; font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
-  .danger-row { margin-top: 1.1rem; text-align: right; }
+  .history-head { display:flex; align-items:center; justify-content:space-between; margin-top:1.1rem; gap:.75rem; }
+  .history-head h3 { font-size:.95rem; }
+  .history-table-wrap { margin-top:.75rem; max-height:260px; overflow:auto; border:1px solid var(--mist); border-radius:12px; }
+  .history-table { width:100%; border-collapse:collapse; font-size:.78rem; }
+  .history-table th, .history-table td { padding:.65rem .7rem; border-bottom:1px solid var(--mist); text-align:left; white-space:nowrap; }
+  .history-table th { position:sticky; top:0; background:var(--surface); z-index:1; }
+  .history-table tr:last-child td { border-bottom:none; }
+  .danger-row { margin-top: 1.1rem; display:flex; justify-content:flex-end; gap:.75rem; flex-wrap:wrap; }
   .danger-link { color: var(--ember); font-size: 0.8rem; background: none; border: none; cursor: pointer; }
+  @media(max-width:640px){ body{padding:.8rem}.topbar{align-items:flex-start;gap:.75rem}.topbar-actions{flex-wrap:wrap;justify-content:flex-end}.create-row{flex-direction:column}.detail-head{align-items:flex-start;gap:.6rem;flex-direction:column} }
 </style>
 </head>
 <body>
@@ -94,8 +102,18 @@
       </div>
       <div class="map" id="map" style="height:320px;"></div>
       <div class="stat-row" id="detail-stats"></div>
+      <div class="history-head">
+        <h3>Saved location history</h3>
+        <button class="danger-link" id="clear-history-btn">Clear history</button>
+      </div>
+      <div class="history-table-wrap">
+        <table class="history-table">
+          <thead><tr><th>Time</th><th>Latitude</th><th>Longitude</th><th>Accuracy</th><th>Open</th></tr></thead>
+          <tbody id="history-body"><tr><td colspan="5">No location points yet.</td></tr></tbody>
+        </table>
+      </div>
       <div class="danger-row">
-        <button class="danger-link" id="delete-btn">Delete this link</button>
+        <button class="danger-link" id="delete-btn">Delete this link and history</button>
       </div>
     </div>
   </div>

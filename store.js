@@ -1,149 +1,153 @@
 // store.js
-// Minimal file-backed data store. Good enough for a single-admin tool at
-// modest scale. For heavier use, swap this module for a real database
-// (Postgres works well on Render) -- the rest of the app only calls the
-// functions exported here, so the storage layer is fully swappable.
+// MongoDB-backed store for live-location sessions, full history, and admin push subscriptions.
+// Location histories are kept permanently until the admin deletes them.
 
-const fs = require('fs');
-const path = require('path');
+const { MongoClient } = require('mongodb');
+const crypto = require('crypto');
 
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
-const DB_FILE = path.join(DATA_DIR, 'db.json');
+const MONGODB_URI = process.env.MONGODB_URI;
+const DB_NAME = process.env.MONGODB_DB || 'pulse_location_share';
 
-function ensureDataFile() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(DB_FILE)) {
-    fs.writeFileSync(DB_FILE, JSON.stringify({ sessions: {}, adminSubscriptions: [] }, null, 2));
-  }
+if (!MONGODB_URI) {
+  console.warn('MONGODB_URI is not set. Set it on Render/local .env or the app cannot save sessions/history.');
 }
 
-function readDb() {
-  ensureDataFile();
-  const raw = fs.readFileSync(DB_FILE, 'utf8');
-  try {
-    return JSON.parse(raw);
-  } catch (err) {
-    console.error('Failed to parse db.json, starting fresh:', err);
-    return { sessions: {}, adminSubscriptions: [] };
-  }
+let client;
+let db;
+let sessions;
+let adminSubscriptions;
+
+async function init() {
+  if (!MONGODB_URI) throw new Error('Missing MONGODB_URI');
+  client = new MongoClient(MONGODB_URI);
+  await client.connect();
+  db = client.db(DB_NAME);
+  sessions = db.collection('sessions');
+  adminSubscriptions = db.collection('adminSubscriptions');
+
+  await Promise.all([
+    sessions.createIndex({ id: 1 }, { unique: true }),
+    sessions.createIndex({ createdAt: -1 }),
+    sessions.createIndex({ active: 1 }),
+    adminSubscriptions.createIndex({ endpoint: 1 }, { unique: true }),
+  ]);
 }
 
-let writeQueue = Promise.resolve();
-function writeDb(db) {
-  // Serialize writes so concurrent requests don't clobber each other.
-  writeQueue = writeQueue.then(() =>
-    fs.promises.writeFile(DB_FILE, JSON.stringify(db, null, 2))
-  );
-  return writeQueue;
+function sessionPublic(doc) {
+  if (!doc) return null;
+  const { _id, ...rest } = doc;
+  return rest;
 }
 
-// ---- Sessions ----
+function cryptoRandomId() {
+  return crypto.randomBytes(16).toString('base64url');
+}
 
-function createSession(label) {
-  const db = readDb();
-  const id = cryptoRandomId();
-  db.sessions[id] = {
-    id,
+async function createSession(label) {
+  const now = new Date().toISOString();
+  const doc = {
+    id: cryptoRandomId(),
     label: label || 'Untitled link',
-    createdAt: new Date().toISOString(),
+    createdAt: now,
     active: false,
     startedAt: null,
     stoppedAt: null,
     lastSeenAt: null,
-    locations: [], // full history: { lat, lng, accuracy, timestamp }
+    lastLocation: null,
+    locations: [],
   };
-  writeDb(db);
-  return db.sessions[id];
+  await sessions.insertOne(doc);
+  return sessionPublic(doc);
 }
 
-function getSession(id) {
-  const db = readDb();
-  return db.sessions[id] || null;
+async function getSession(id) {
+  return sessionPublic(await sessions.findOne({ id }));
 }
 
-function listSessions() {
-  const db = readDb();
-  return Object.values(db.sessions).sort(
-    (a, b) => new Date(b.createdAt) - new Date(a.createdAt)
+async function listSessions() {
+  const docs = await sessions.find({}).sort({ createdAt: -1 }).toArray();
+  return docs.map(sessionPublic);
+}
+
+async function deleteSession(id) {
+  await sessions.deleteOne({ id });
+}
+
+async function clearSessionHistory(id) {
+  const doc = await sessions.findOneAndUpdate(
+    { id },
+    {
+      $set: {
+        locations: [],
+        lastLocation: null,
+        lastSeenAt: null,
+      },
+    },
+    { returnDocument: 'after' }
+  );
+  return sessionPublic(doc);
+}
+
+async function startSharing(id) {
+  const now = new Date().toISOString();
+  const doc = await sessions.findOneAndUpdate(
+    { id },
+    { $set: { active: true, startedAt: now, stoppedAt: null } },
+    { returnDocument: 'after' }
+  );
+  return sessionPublic(doc);
+}
+
+async function stopSharing(id) {
+  const now = new Date().toISOString();
+  const doc = await sessions.findOneAndUpdate(
+    { id },
+    { $set: { active: false, stoppedAt: now } },
+    { returnDocument: 'after' }
+  );
+  return sessionPublic(doc);
+}
+
+async function appendLocation(id, point) {
+  const doc = await sessions.findOneAndUpdate(
+    { id },
+    {
+      $set: {
+        active: true,
+        lastSeenAt: point.timestamp,
+        lastLocation: point,
+      },
+      $push: { locations: point },
+    },
+    { returnDocument: 'after' }
+  );
+  return sessionPublic(doc);
+}
+
+async function addAdminSubscription(subscription) {
+  await adminSubscriptions.updateOne(
+    { endpoint: subscription.endpoint },
+    { $set: { ...subscription, updatedAt: new Date().toISOString() } },
+    { upsert: true }
   );
 }
 
-function deleteSession(id) {
-  const db = readDb();
-  delete db.sessions[id];
-  writeDb(db);
+async function removeAdminSubscription(endpoint) {
+  await adminSubscriptions.deleteOne({ endpoint });
 }
 
-function startSharing(id) {
-  const db = readDb();
-  const session = db.sessions[id];
-  if (!session) return null;
-  session.active = true;
-  session.startedAt = new Date().toISOString();
-  session.stoppedAt = null;
-  writeDb(db);
-  return session;
-}
-
-function stopSharing(id) {
-  const db = readDb();
-  const session = db.sessions[id];
-  if (!session) return null;
-  session.active = false;
-  session.stoppedAt = new Date().toISOString();
-  writeDb(db);
-  return session;
-}
-
-function appendLocation(id, point) {
-  const db = readDb();
-  const session = db.sessions[id];
-  if (!session) return null;
-  session.locations.push(point);
-  session.lastSeenAt = point.timestamp;
-  writeDb(db);
-  return session;
-}
-
-// ---- Admin push subscriptions ----
-
-function addAdminSubscription(subscription) {
-  const db = readDb();
-  const exists = db.adminSubscriptions.some(
-    (s) => s.endpoint === subscription.endpoint
-  );
-  if (!exists) {
-    db.adminSubscriptions.push(subscription);
-    writeDb(db);
-  }
-  return db.adminSubscriptions;
-}
-
-function removeAdminSubscription(endpoint) {
-  const db = readDb();
-  db.adminSubscriptions = db.adminSubscriptions.filter(
-    (s) => s.endpoint !== endpoint
-  );
-  writeDb(db);
-}
-
-function listAdminSubscriptions() {
-  const db = readDb();
-  return db.adminSubscriptions;
-}
-
-function cryptoRandomId() {
-  // URL-safe, unguessable id for share links.
-  return require('crypto').randomBytes(16).toString('base64url');
+async function listAdminSubscriptions() {
+  const docs = await adminSubscriptions.find({}).toArray();
+  return docs.map(({ _id, updatedAt, ...sub }) => sub);
 }
 
 module.exports = {
+  init,
   createSession,
   getSession,
   listSessions,
   deleteSession,
+  clearSessionHistory,
   startSharing,
   stopSharing,
   appendLocation,

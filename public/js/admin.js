@@ -11,14 +11,16 @@
   const logoutBtn = document.getElementById('logout-btn');
   const backBtn = document.getElementById('back-btn');
   const deleteBtn = document.getElementById('delete-btn');
+  const clearHistoryBtn = document.getElementById('clear-history-btn');
   const connDot = document.getElementById('conn-dot');
+  const historyBody = document.getElementById('history-body');
 
   const detailLabel = document.getElementById('detail-label');
   const detailStatus = document.getElementById('detail-status');
   const detailStats = document.getElementById('detail-stats');
 
   let currentSessionId = null;
-  let map, marker, pathLine, pathPoints = [];
+  let map, marker, pathLine, accuracyCircle, pathPoints = [], locationHistory = [];
   let ws = null;
   let listPollInterval = null;
 
@@ -60,7 +62,7 @@
       row.innerHTML = `
         <div>
           <div class="session-label"><span class="status-dot ${s.active ? 'live' : ''}"></span>${escapeHtml(s.label)}</div>
-          <div class="session-meta">${s.active ? 'Sharing now' : (s.lastSeenAt ? `Last seen ${timeAgo(s.lastSeenAt)}` : 'Not started yet')} · ${s.locations.length} points</div>
+          <div class="session-meta">${s.active ? 'Sharing now' : (s.lastSeenAt ? `Last seen ${timeAgo(s.lastSeenAt)}` : 'Not started yet')} · ${(s.locations || []).length} points</div>
         </div>
         <button class="btn-ghost">View</button>
       `;
@@ -120,12 +122,35 @@
 
     detailStats.innerHTML = `
       <span>started: ${session.startedAt ? new Date(session.startedAt).toLocaleString() : '—'}</span>
-      <span>points: ${session.locations.length}</span>
+      <span>points: ${(session.locations || []).length}</span>
       <span>last seen: ${session.lastSeenAt ? timeAgo(session.lastSeenAt) : '—'}</span>
     `;
 
-    pathPoints = session.locations.map((p) => [p.lat, p.lng]);
+    locationHistory = Array.isArray(session.locations) ? session.locations : [];
+    pathPoints = locationHistory.map((p) => [p.lat, p.lng]);
     initOrUpdateMap();
+    renderHistoryTable();
+  }
+
+  function renderHistoryTable() {
+    if (!locationHistory.length) {
+      historyBody.innerHTML = '<tr><td colspan="5">No location points yet.</td></tr>';
+      return;
+    }
+    historyBody.innerHTML = locationHistory.slice().reverse().map((p) => {
+      const lat = Number(p.lat);
+      const lng = Number(p.lng);
+      const acc = p.accuracy ? `±${Math.round(p.accuracy)}m` : '—';
+      const when = p.timestamp ? new Date(p.timestamp).toLocaleString() : '—';
+      const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
+      return `<tr>
+        <td>${escapeHtml(when)}</td>
+        <td class="mono">${lat.toFixed(6)}</td>
+        <td class="mono">${lng.toFixed(6)}</td>
+        <td>${acc}</td>
+        <td><a href="${mapsUrl}" target="_blank" rel="noopener">Map</a></td>
+      </tr>`;
+    }).join('');
   }
 
   function initOrUpdateMap() {
@@ -135,14 +160,20 @@
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
       pathLine = L.polyline([], { color: '#16A394', weight: 3, opacity: 0.6 }).addTo(map);
       marker = L.circleMarker([0, 0], { radius: 7, color: '#16A394', fillColor: '#16A394', fillOpacity: 1 }).addTo(map);
+      accuracyCircle = L.circle([0, 0], { radius: 1, color: '#16A394', fillColor: '#16A394', fillOpacity: 0.08, opacity: 0.25 }).addTo(map);
     }
     if (pathPoints.length > 0) {
       pathLine.setLatLngs(pathPoints);
       const last = pathPoints[pathPoints.length - 1];
+      const lastPoint = locationHistory[locationHistory.length - 1] || {};
       marker.setLatLng(last);
-      map.fitBounds(pathLine.getBounds(), { maxZoom: 16, padding: [20, 20] });
+      accuracyCircle.setLatLng(last);
+      accuracyCircle.setRadius(lastPoint.accuracy || 1);
+      map.fitBounds(pathLine.getBounds(), { maxZoom: 17, padding: [20, 20] });
     } else {
       map.setView([20, 0], 2);
+      marker.setLatLng([0, 0]);
+      accuracyCircle.setRadius(1);
     }
   }
 
@@ -153,6 +184,14 @@
     if (ws) { ws.close(); ws = null; }
     loadSessions();
     startListPolling();
+  });
+
+  clearHistoryBtn.addEventListener('click', async () => {
+    if (!currentSessionId) return;
+    if (!confirm('Clear all saved location points for this link? The link will remain.')) return;
+    const res = await api(`/api/admin/sessions/${currentSessionId}/history`, { method: 'DELETE' });
+    const session = await res.json();
+    renderDetail(session);
   });
 
   deleteBtn.addEventListener('click', async () => {
@@ -174,10 +213,13 @@
       const msg = JSON.parse(event.data);
       if (!currentSessionId) return;
       if (msg.type === 'location' && msg.sessionId === currentSessionId) {
+        locationHistory.push(msg.point);
         pathPoints.push([msg.point.lat, msg.point.lng]);
         initOrUpdateMap();
+        renderHistoryTable();
         detailStats.innerHTML = detailStats.innerHTML.replace(/points: \d+/, `points: ${pathPoints.length}`);
-      } else if ((msg.type === 'started' || msg.type === 'stopped') && msg.session.id === currentSessionId) {
+        detailStats.innerHTML = detailStats.innerHTML.replace(/last seen: .*?<\/span>/, `last seen: just now</span>`);
+      } else if ((msg.type === 'started' || msg.type === 'stopped' || msg.type === 'history-cleared') && msg.session.id === currentSessionId) {
         renderDetail(msg.session);
       }
     };
