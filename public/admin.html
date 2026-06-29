@@ -2,76 +2,107 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Sharing Location</title>
-
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse — Admin</title>
+<link rel="stylesheet" href="/css/styles.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
-  body {
-    margin: 0;
-    height: 100vh;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-family: Arial, sans-serif;
-    background: #ffffff;
-    color: #111;
-    text-align: center;
+  body { padding: 1.5rem; }
+  .shell { max-width: 760px; margin: 0 auto; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1.75rem;
+  }
+  .wordmark { font-size: 1.15rem; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+  .wordmark .status-dot { width: 8px; height: 8px; }
+  .topbar-actions { display: flex; gap: 0.6rem; }
+
+  .panel { padding: 1.4rem; margin-bottom: 1.25rem; }
+  .panel h2 { font-size: 1rem; margin-bottom: 0.9rem; }
+
+  .create-row { display: flex; gap: 0.6rem; }
+  .create-row input {
+    flex: 1; padding: 0.7rem 0.9rem; border: 1px solid var(--mist);
+    border-radius: 10px; font-family: var(--font-body); font-size: 0.92rem;
+  }
+  .create-row input:focus { outline: 2px solid var(--signal); border-color: var(--signal); }
+
+  .new-link-box {
+    display: none; margin-top: 0.9rem; padding: 0.8rem 1rem;
+    background: var(--signal-soft); border-radius: 10px;
+    font-family: var(--font-mono); font-size: 0.82rem;
+    word-break: break-all; align-items: center; justify-content: space-between; gap: 0.6rem;
   }
 
-  h1 {
-    font-size: 22px;
-    font-weight: 600;
+  .session-card {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.95rem 0.2rem; border-bottom: 1px solid var(--mist);
+    cursor: pointer;
   }
+  .session-card:last-child { border-bottom: none; }
+  .session-card:hover { background: var(--paper); border-radius: 10px; }
+  .session-label { font-weight: 600; }
+  .session-meta { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+  .empty-note { color: var(--muted); font-size: 0.88rem; padding: 0.5rem 0; }
+
+  /* detail view */
+  #detail-view { display: none; }
+  .back-btn { background: none; border: none; color: var(--muted); font-weight: 600; font-size: 0.85rem; padding: 0.3rem 0; margin-bottom: 0.8rem; }
+  .detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.9rem; }
+  .detail-title { font-size: 1.1rem; }
+  .stat-row { display: flex; gap: 1.4rem; margin-top: 1rem; font-family: var(--font-mono); font-size: 0.78rem; color: var(--muted); flex-wrap: wrap; }
+  .danger-row { margin-top: 1.1rem; text-align: right; }
+  .danger-link { color: var(--ember); font-size: 0.8rem; background: none; border: none; cursor: pointer; }
 </style>
 </head>
-
 <body>
-  <h1 id="status">Sharing location...</h1>
+<div class="shell">
 
-<script>
-const statusText = document.getElementById("status");
+  <div class="topbar">
+    <div class="wordmark"><span class="status-dot" id="conn-dot"></span> Pulse</div>
+    <div class="topbar-actions">
+      <button class="btn-ghost" id="notif-btn">Enable alerts</button>
+      <button class="btn-ghost" id="logout-btn">Sign out</button>
+    </div>
+  </div>
 
-function sendLocation(position) {
-  const data = {
-    latitude: position.coords.latitude,
-    longitude: position.coords.longitude,
-    accuracy: position.coords.accuracy,
-    timestamp: Date.now()
-  };
+  <div id="list-view">
+    <div class="card panel">
+      <h2>New sharing link</h2>
+      <div class="create-row">
+        <input id="label-input" placeholder="e.g. Dad's trip home, Field visit #3" />
+        <button class="btn-primary" id="create-btn">Create</button>
+      </div>
+      <div class="new-link-box" id="new-link-box">
+        <span id="new-link-text"></span>
+        <button class="btn-ghost" id="copy-btn" style="white-space:nowrap;">Copy</button>
+      </div>
+    </div>
 
-  statusText.textContent = "Sharing location...";
+    <div class="card panel">
+      <h2>Links</h2>
+      <div id="session-list"><p class="empty-note">No links yet — create one above.</p></div>
+    </div>
+  </div>
 
-  fetch("/api/location", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify(data)
-  }).catch(() => {
-    statusText.textContent = "Sharing location...";
-  });
-}
+  <div id="detail-view">
+    <button class="back-btn" id="back-btn">← Back to links</button>
+    <div class="card panel">
+      <div class="detail-head">
+        <div class="detail-title" id="detail-label">—</div>
+        <div class="live-pill" id="detail-status"><span class="status-dot"></span> <span></span></div>
+      </div>
+      <div class="map" id="map" style="height:320px;"></div>
+      <div class="stat-row" id="detail-stats"></div>
+      <div class="danger-row">
+        <button class="danger-link" id="delete-btn">Delete this link</button>
+      </div>
+    </div>
+  </div>
 
-function locationError() {
-  statusText.textContent = "Location permission needed";
-}
+</div>
 
-window.addEventListener("load", () => {
-  if (!navigator.geolocation) {
-    statusText.textContent = "Location not supported";
-    return;
-  }
-
-  navigator.geolocation.watchPosition(
-    sendLocation,
-    locationError,
-    {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 10000
-    }
-  );
-});
-</script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/admin.js"></script>
 </body>
 </html>
