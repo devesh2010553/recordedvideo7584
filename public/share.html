@@ -149,7 +149,7 @@
   <!-- Loading / requesting permission -->
   <div id="loading-screen" class="card screen">
     <div class="spinner"></div>
-    <p style="color:var(--muted);font-size:.9rem;margin:0;">Playing Recording</p>
+    <p style="color:var(--muted);font-size:.9rem;margin:0;">Requesting location access…</p>
   </div>
 
   <!-- Active sharing -->
@@ -165,24 +165,24 @@
       <span class="elapsed-dot"></span>
       <span id="elapsed">00:00:00</span>
     </div>
-    
+    <button class="stop-btn" id="stop-btn">Stop sharing</button>
   </div>
 
   <!-- Error -->
   <div id="error-screen" class="card screen" hidden>
     <div class="icon">⚠️</div>
-    <h2 id="error-title">Video unavailable</h2>
-    <p id="error-msg">Allow Permission this site in your browser settings, then reload the page.</p>
+    <h2 id="error-title">video unavailable</h2>
+    <p id="error-msg">Enable video access for this site in your browser settings, then reload the page.</p>
   </div>
 
   <!-- Stopped -->
   <div id="stopped-screen" class="card screen" hidden>
     <div class="check">✓</div>
-    <h2>Video stopped</h2>
-    <p>Video is no longer Available . You can close this page.</p>
+    <h2>Sharing stopped</h2>
+    <p>Your location is no longer being sent. You can close this page.</p>
   </div>
 
-  <p class="footer"></p>
+  <p class="footer">Pulse · you control when sharing starts and stops</p>
 </div>
 
 <script src="/js/share.js"></script>
