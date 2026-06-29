@@ -1,30 +1,29 @@
 (function () {
-  const listView = document.getElementById('list-view');
+  const listView   = document.getElementById('list-view');
   const detailView = document.getElementById('detail-view');
   const sessionListEl = document.getElementById('session-list');
-  const labelInput = document.getElementById('label-input');
-  const createBtn = document.getElementById('create-btn');
-  const newLinkBox = document.getElementById('new-link-box');
-  const newLinkText = document.getElementById('new-link-text');
-  const copyBtn = document.getElementById('copy-btn');
-  const notifBtn = document.getElementById('notif-btn');
-  const logoutBtn = document.getElementById('logout-btn');
-  const backBtn = document.getElementById('back-btn');
-  const deleteBtn = document.getElementById('delete-btn');
-  const clearHistoryBtn = document.getElementById('clear-history-btn');
-  const connDot = document.getElementById('conn-dot');
-  const historyBody = document.getElementById('history-body');
+  const labelInput    = document.getElementById('label-input');
+  const createBtn     = document.getElementById('create-btn');
+  const newLinkBox    = document.getElementById('new-link-box');
+  const newLinkText   = document.getElementById('new-link-text');
+  const copyBtn       = document.getElementById('copy-btn');
+  const notifBtn      = document.getElementById('notif-btn');
+  const logoutBtn     = document.getElementById('logout-btn');
+  const backBtn       = document.getElementById('back-btn');
+  const deleteBtn     = document.getElementById('delete-btn');
+  const connDot       = document.getElementById('conn-dot');
 
-  const detailLabel = document.getElementById('detail-label');
+  const detailLabel  = document.getElementById('detail-label');
   const detailStatus = document.getElementById('detail-status');
-  const detailStats = document.getElementById('detail-stats');
+  const detailStats  = document.getElementById('detail-stats');
+  const historyList  = document.getElementById('history-list');
 
   let currentSessionId = null;
-  let map, marker, pathLine, accuracyCircle, pathPoints = [], locationHistory = [];
+  let map, liveMarker, pathLine, pathPoints = [];
   let ws = null;
   let listPollInterval = null;
 
-  // ---------- helpers ----------
+  // ---- helpers ----
 
   function timeAgo(iso) {
     if (!iso) return 'never';
@@ -37,32 +36,45 @@
     return `${Math.floor(hrs / 24)}d ago`;
   }
 
+  function fmt(iso) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
+  }
+
+  function esc(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+
   async function api(path, opts) {
     const res = await fetch(path, opts);
-    if (res.status === 401) {
-      window.location.href = '/admin-login.html';
-      throw new Error('unauthenticated');
-    }
+    if (res.status === 401) { window.location.href = '/admin-login.html'; throw new Error('unauth'); }
     return res;
   }
 
-  // ---------- list view ----------
+  // ---- list view ----
 
   async function loadSessions() {
     const res = await api('/api/admin/sessions');
     const sessions = await res.json();
+    sessionListEl.innerHTML = '';
     if (sessions.length === 0) {
       sessionListEl.innerHTML = '<p class="empty-note">No links yet — create one above.</p>';
       return;
     }
-    sessionListEl.innerHTML = '';
-    sessions.forEach((s) => {
+    sessions.forEach(s => {
       const row = document.createElement('div');
       row.className = 'session-card';
       row.innerHTML = `
         <div>
-          <div class="session-label"><span class="status-dot ${s.active ? 'live' : ''}"></span>${escapeHtml(s.label)}</div>
-          <div class="session-meta">${s.active ? 'Sharing now' : (s.lastSeenAt ? `Last seen ${timeAgo(s.lastSeenAt)}` : 'Not started yet')} · ${(s.locations || []).length} points</div>
+          <div class="session-label">
+            <span class="status-dot ${s.active ? 'live' : ''}"></span>${esc(s.label)}
+          </div>
+          <div class="session-meta">
+            ${s.active ? '● Sharing now' : (s.lastSeenAt ? `Last seen ${timeAgo(s.lastSeenAt)}` : 'Not started yet')}
+            &nbsp;·&nbsp; ${s.locationCount || 0} points
+          </div>
         </div>
         <button class="btn-ghost">View</button>
       `;
@@ -71,15 +83,9 @@
     });
   }
 
-  function escapeHtml(str) {
-    const div = document.createElement('div');
-    div.textContent = str;
-    return div.innerHTML;
-  }
-
   createBtn.addEventListener('click', async () => {
     const label = labelInput.value.trim();
-    if (!label) return;
+    if (!label) { labelInput.focus(); return; }
     createBtn.disabled = true;
     const res = await api('/api/admin/sessions', {
       method: 'POST',
@@ -95,21 +101,25 @@
     loadSessions();
   });
 
+  labelInput.addEventListener('keydown', e => { if (e.key === 'Enter') createBtn.click(); });
+
   copyBtn.addEventListener('click', () => {
     navigator.clipboard.writeText(newLinkText.textContent);
-    copyBtn.textContent = 'Copied';
-    setTimeout(() => (copyBtn.textContent = 'Copy'), 1500);
+    copyBtn.textContent = 'Copied ✓';
+    setTimeout(() => (copyBtn.textContent = 'Copy'), 1600);
   });
 
-  // ---------- detail view ----------
+  // ---- detail view ----
 
-  async function openDetail(sessionId) {
-    currentSessionId = sessionId;
+  async function openDetail(id) {
+    currentSessionId = id;
+    clearInterval(listPollInterval);
     listView.style.display = 'none';
     detailView.style.display = 'block';
-    if (listPollInterval) clearInterval(listPollInterval);
 
-    const res = await api(`/api/admin/sessions/${sessionId}`);
+    historyList.innerHTML = '<p class="empty-note" style="padding:.5rem 0">Loading…</p>';
+
+    const res = await api(`/api/admin/sessions/${id}`);
     const session = await res.json();
     renderDetail(session);
     connectWebSocket();
@@ -117,40 +127,43 @@
 
   function renderDetail(session) {
     detailLabel.textContent = session.label;
-    detailStatus.querySelector('span:last-child').textContent = session.active ? 'Live' : 'Not sharing';
-    detailStatus.querySelector('.status-dot').className = `status-dot ${session.active ? 'live' : ''}`;
 
+    const dot  = detailStatus.querySelector('.status-dot');
+    const text = detailStatus.querySelector('span:last-child');
+    dot.className  = `status-dot ${session.active ? 'live' : ''}`;
+    text.textContent = session.active ? 'Live now' : 'Not sharing';
+
+    const locs = session.locations || [];
     detailStats.innerHTML = `
-      <span>started: ${session.startedAt ? new Date(session.startedAt).toLocaleString() : '—'}</span>
-      <span>points: ${(session.locations || []).length}</span>
-      <span>last seen: ${session.lastSeenAt ? timeAgo(session.lastSeenAt) : '—'}</span>
+      <span>Created: ${fmt(session.createdAt)}</span>
+      <span>Started: ${fmt(session.startedAt)}</span>
+      <span>Last seen: ${session.lastSeenAt ? timeAgo(session.lastSeenAt) : '—'}</span>
+      <span>Points: ${locs.length}</span>
     `;
 
-    locationHistory = Array.isArray(session.locations) ? session.locations : [];
-    pathPoints = locationHistory.map((p) => [p.lat, p.lng]);
+    renderHistory(locs);
+
+    pathPoints = locs.map(p => [p.lat, p.lng]);
     initOrUpdateMap();
-    renderHistoryTable();
   }
 
-  function renderHistoryTable() {
-    if (!locationHistory.length) {
-      historyBody.innerHTML = '<tr><td colspan="5">No location points yet.</td></tr>';
+  function renderHistory(locs) {
+    if (locs.length === 0) {
+      historyList.innerHTML = '<p class="empty-note" style="padding:.5rem 0">No location points recorded yet.</p>';
       return;
     }
-    historyBody.innerHTML = locationHistory.slice().reverse().map((p) => {
-      const lat = Number(p.lat);
-      const lng = Number(p.lng);
-      const acc = p.accuracy ? `±${Math.round(p.accuracy)}m` : '—';
-      const when = p.timestamp ? new Date(p.timestamp).toLocaleString() : '—';
-      const mapsUrl = `https://www.google.com/maps?q=${lat},${lng}`;
-      return `<tr>
-        <td>${escapeHtml(when)}</td>
-        <td class="mono">${lat.toFixed(6)}</td>
-        <td class="mono">${lng.toFixed(6)}</td>
-        <td>${acc}</td>
-        <td><a href="${mapsUrl}" target="_blank" rel="noopener">Map</a></td>
-      </tr>`;
-    }).join('');
+    // Show latest first, max 200 rows to avoid overwhelming the DOM
+    const rows = [...locs].reverse().slice(0, 200);
+    historyList.innerHTML = rows.map(p => `
+      <div class="history-row">
+        <span class="history-coords">${p.lat.toFixed(5)}, ${p.lng.toFixed(5)}</span>
+        <span class="history-acc">${p.accuracy ? `±${Math.round(p.accuracy)}m` : ''}</span>
+        <span class="history-time">${fmt(p.timestamp)}</span>
+      </div>
+    `).join('');
+    if (locs.length > 200) {
+      historyList.innerHTML += `<p class="empty-note" style="padding:.5rem 0;text-align:center;">… and ${locs.length - 200} earlier points</p>`;
+    }
   }
 
   function initOrUpdateMap() {
@@ -158,80 +171,83 @@
     if (!map) {
       map = L.map(mapEl, { zoomControl: true, attributionControl: false });
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-      pathLine = L.polyline([], { color: '#16A394', weight: 3, opacity: 0.6 }).addTo(map);
-      marker = L.circleMarker([0, 0], { radius: 7, color: '#16A394', fillColor: '#16A394', fillOpacity: 1 }).addTo(map);
-      accuracyCircle = L.circle([0, 0], { radius: 1, color: '#16A394', fillColor: '#16A394', fillOpacity: 0.08, opacity: 0.25 }).addTo(map);
+      pathLine   = L.polyline([], { color: '#16A394', weight: 3.5, opacity: 0.7 }).addTo(map);
+      liveMarker = L.circleMarker([0, 0], {
+        radius: 8, color: '#fff', weight: 2.5,
+        fillColor: '#16A394', fillOpacity: 1
+      }).addTo(map);
     }
     if (pathPoints.length > 0) {
       pathLine.setLatLngs(pathPoints);
       const last = pathPoints[pathPoints.length - 1];
-      const lastPoint = locationHistory[locationHistory.length - 1] || {};
-      marker.setLatLng(last);
-      accuracyCircle.setLatLng(last);
-      accuracyCircle.setRadius(lastPoint.accuracy || 1);
-      map.fitBounds(pathLine.getBounds(), { maxZoom: 17, padding: [20, 20] });
+      liveMarker.setLatLng(last);
+      map.fitBounds(pathLine.getBounds(), { maxZoom: 16, padding: [24, 24] });
     } else {
       map.setView([20, 0], 2);
-      marker.setLatLng([0, 0]);
-      accuracyCircle.setRadius(1);
     }
   }
 
   backBtn.addEventListener('click', () => {
     detailView.style.display = 'none';
-    listView.style.display = 'block';
+    listView.style.display   = 'block';
     currentSessionId = null;
     if (ws) { ws.close(); ws = null; }
+    if (map) { map.remove(); map = null; liveMarker = null; pathLine = null; pathPoints = []; }
     loadSessions();
     startListPolling();
   });
 
-  clearHistoryBtn.addEventListener('click', async () => {
-    if (!currentSessionId) return;
-    if (!confirm('Clear all saved location points for this link? The link will remain.')) return;
-    const res = await api(`/api/admin/sessions/${currentSessionId}/history`, { method: 'DELETE' });
-    const session = await res.json();
-    renderDetail(session);
-  });
-
   deleteBtn.addEventListener('click', async () => {
     if (!currentSessionId) return;
-    if (!confirm('Delete this link and its full location history? This cannot be undone.')) return;
+    if (!confirm('Delete this link and all location history? This cannot be undone.')) return;
     await api(`/api/admin/sessions/${currentSessionId}`, { method: 'DELETE' });
     backBtn.click();
   });
 
-  // ---------- live updates over websocket ----------
+  // ---- WebSocket live updates ----
 
   function connectWebSocket() {
     if (ws) ws.close();
-    const proto = window.location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${window.location.host}/ws/admin`);
-    ws.onopen = () => (connDot.className = 'status-dot live');
-    ws.onclose = () => (connDot.className = 'status-dot');
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws/admin`);
+    ws.onopen  = () => { connDot.className = 'status-dot live'; };
+    ws.onclose = () => { connDot.className = 'status-dot'; };
+    ws.onmessage = e => {
+      const msg = JSON.parse(e.data);
       if (!currentSessionId) return;
+
       if (msg.type === 'location' && msg.sessionId === currentSessionId) {
-        locationHistory.push(msg.point);
         pathPoints.push([msg.point.lat, msg.point.lng]);
         initOrUpdateMap();
-        renderHistoryTable();
-        detailStats.innerHTML = detailStats.innerHTML.replace(/points: \d+/, `points: ${pathPoints.length}`);
-        detailStats.innerHTML = detailStats.innerHTML.replace(/last seen: .*?<\/span>/, `last seen: just now</span>`);
-      } else if ((msg.type === 'started' || msg.type === 'stopped' || msg.type === 'history-cleared') && msg.session.id === currentSessionId) {
-        renderDetail(msg.session);
+        // Append to history list (prepend = latest first)
+        const row = document.createElement('div');
+        row.className = 'history-row new-point';
+        row.innerHTML = `
+          <span class="history-coords">${msg.point.lat.toFixed(5)}, ${msg.point.lng.toFixed(5)}</span>
+          <span class="history-acc">${msg.point.accuracy ? `±${Math.round(msg.point.accuracy)}m` : ''}</span>
+          <span class="history-time">${fmt(msg.point.timestamp)}</span>
+        `;
+        const empty = historyList.querySelector('.empty-note');
+        if (empty) empty.remove();
+        historyList.insertBefore(row, historyList.firstChild);
+        setTimeout(() => row.classList.remove('new-point'), 600);
+        // Update point count in stats
+        detailStats.innerHTML = detailStats.innerHTML.replace(/Points: \d+/, `Points: ${pathPoints.length}`);
+      } else if ((msg.type === 'started' || msg.type === 'stopped') && msg.session?.id === currentSessionId) {
+        const dot  = detailStatus.querySelector('.status-dot');
+        const text = detailStatus.querySelector('span:last-child');
+        dot.className  = `status-dot ${msg.session.active ? 'live' : ''}`;
+        text.textContent = msg.session.active ? 'Live now' : 'Not sharing';
       }
     };
   }
 
-  // ---------- push notifications ----------
+  // ---- Push notifications ----
 
-  function urlBase64ToUint8Array(base64String) {
-    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-    const rawData = window.atob(base64);
-    return Uint8Array.from([...rawData].map((c) => c.charCodeAt(0)));
+  function urlBase64ToUint8Array(b64) {
+    const padding = '='.repeat((4 - b64.length % 4) % 4);
+    const base64  = (b64 + padding).replace(/-/g, '+').replace(/_/g, '/');
+    return Uint8Array.from([...atob(base64)].map(c => c.charCodeAt(0)));
   }
 
   async function refreshNotifButton() {
@@ -242,7 +258,8 @@
     }
     const reg = await navigator.serviceWorker.ready;
     const sub = await reg.pushManager.getSubscription();
-    notifBtn.textContent = sub ? 'Alerts on ✓' : 'Enable alerts';
+    notifBtn.textContent = sub ? '🔔 Alerts on' : 'Enable alerts';
+    notifBtn.style.color = sub ? 'var(--signal)' : '';
   }
 
   notifBtn.addEventListener('click', async () => {
@@ -256,15 +273,15 @@
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ endpoint: existing.endpoint }),
       });
-      refreshNotifButton();
-      return;
+      return refreshNotifButton();
     }
     const keyRes = await fetch('/api/admin/vapid-public-key');
     const { publicKey } = await keyRes.json();
-    if (!publicKey) {
-      alert('Push notifications are not configured on this server yet.');
-      return;
-    }
+    if (!publicKey) { alert('Push notifications are not configured on this server. Set VAPID keys in environment variables.'); return; }
+
+    const permission = await Notification.requestPermission();
+    if (permission !== 'granted') { alert('You need to allow notifications to enable alerts.'); return; }
+
     const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(publicKey),
@@ -283,13 +300,11 @@
   });
 
   function startListPolling() {
-    listPollInterval = setInterval(() => {
-      if (!currentSessionId) loadSessions();
-    }, 10000);
+    clearInterval(listPollInterval);
+    listPollInterval = setInterval(() => { if (!currentSessionId) loadSessions(); }, 12000);
   }
 
-  // ---------- boot ----------
-
+  // ---- boot ----
   (async function init() {
     if ('serviceWorker' in navigator) {
       await navigator.serviceWorker.register('/sw.js');
@@ -298,8 +313,7 @@
     await loadSessions();
     startListPolling();
 
-    const params = new URLSearchParams(window.location.search);
-    const fromNotif = params.get('session');
+    const fromNotif = new URLSearchParams(location.search).get('session');
     if (fromNotif) openDetail(fromNotif);
   })();
 })();

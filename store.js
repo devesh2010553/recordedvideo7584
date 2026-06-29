@@ -1,153 +1,169 @@
-// store.js
-// MongoDB-backed store for live-location sessions, full history, and admin push subscriptions.
-// Location histories are kept permanently until the admin deletes them.
+// store.js — MongoDB-backed data store via Mongoose
+// All data survives redeploys. Set MONGODB_URI in env.
 
-const { MongoClient } = require('mongodb');
+const mongoose = require('mongoose');
 const crypto = require('crypto');
 
-const MONGODB_URI = process.env.MONGODB_URI;
-const DB_NAME = process.env.MONGODB_DB || 'pulse_location_share';
+// ---- Connection ----
 
-if (!MONGODB_URI) {
-  console.warn('MONGODB_URI is not set. Set it on Render/local .env or the app cannot save sessions/history.');
+let connected = false;
+
+async function connect() {
+  if (connected) return;
+  const uri = process.env.MONGODB_URI;
+  if (!uri) {
+    throw new Error('MONGODB_URI is not set. Add it to your environment variables.');
+  }
+  await mongoose.connect(uri, { serverSelectionTimeoutMS: 10000 });
+  connected = true;
+  console.log('MongoDB connected');
 }
 
-let client;
-let db;
-let sessions;
-let adminSubscriptions;
+// ---- Schemas ----
 
-async function init() {
-  if (!MONGODB_URI) throw new Error('Missing MONGODB_URI');
-  client = new MongoClient(MONGODB_URI);
-  await client.connect();
-  db = client.db(DB_NAME);
-  sessions = db.collection('sessions');
-  adminSubscriptions = db.collection('adminSubscriptions');
+const locationPointSchema = new mongoose.Schema({
+  lat: { type: Number, required: true },
+  lng: { type: Number, required: true },
+  accuracy: { type: Number, default: null },
+  timestamp: { type: Date, default: Date.now },
+}, { _id: false });
 
-  await Promise.all([
-    sessions.createIndex({ id: 1 }, { unique: true }),
-    sessions.createIndex({ createdAt: -1 }),
-    sessions.createIndex({ active: 1 }),
-    adminSubscriptions.createIndex({ endpoint: 1 }, { unique: true }),
-  ]);
-}
+const sessionSchema = new mongoose.Schema({
+  id: { type: String, required: true, unique: true, index: true },
+  label: { type: String, default: 'Untitled link' },
+  createdAt: { type: Date, default: Date.now },
+  active: { type: Boolean, default: false },
+  startedAt: { type: Date, default: null },
+  stoppedAt: { type: Date, default: null },
+  lastSeenAt: { type: Date, default: null },
+  locations: [locationPointSchema],
+});
 
-function sessionPublic(doc) {
+const adminSubSchema = new mongoose.Schema({
+  endpoint: { type: String, required: true, unique: true },
+  keys: {
+    auth: String,
+    p256dh: String,
+  },
+  expirationTime: { type: Number, default: null },
+});
+
+const Session = mongoose.models.Session || mongoose.model('Session', sessionSchema);
+const AdminSub = mongoose.models.AdminSub || mongoose.model('AdminSub', adminSubSchema);
+
+// ---- Helper: plain JS object matching old API shape ----
+
+function toPlain(doc) {
   if (!doc) return null;
-  const { _id, ...rest } = doc;
-  return rest;
+  const obj = doc.toObject ? doc.toObject() : doc;
+  // Normalize dates to ISO strings and expose locations with ISO timestamps
+  return {
+    id: obj.id,
+    label: obj.label,
+    createdAt: obj.createdAt instanceof Date ? obj.createdAt.toISOString() : obj.createdAt,
+    active: obj.active,
+    startedAt: obj.startedAt instanceof Date ? obj.startedAt.toISOString() : obj.startedAt,
+    stoppedAt: obj.stoppedAt instanceof Date ? obj.stoppedAt.toISOString() : obj.stoppedAt,
+    lastSeenAt: obj.lastSeenAt instanceof Date ? obj.lastSeenAt.toISOString() : obj.lastSeenAt,
+    locations: (obj.locations || []).map(p => ({
+      lat: p.lat,
+      lng: p.lng,
+      accuracy: p.accuracy,
+      timestamp: p.timestamp instanceof Date ? p.timestamp.toISOString() : p.timestamp,
+    })),
+  };
 }
 
-function cryptoRandomId() {
-  return crypto.randomBytes(16).toString('base64url');
-}
+// ---- Sessions ----
 
 async function createSession(label) {
-  const now = new Date().toISOString();
-  const doc = {
-    id: cryptoRandomId(),
-    label: label || 'Untitled link',
-    createdAt: now,
-    active: false,
-    startedAt: null,
-    stoppedAt: null,
-    lastSeenAt: null,
-    lastLocation: null,
-    locations: [],
-  };
-  await sessions.insertOne(doc);
-  return sessionPublic(doc);
+  await connect();
+  const id = crypto.randomBytes(16).toString('base64url');
+  const session = await Session.create({ id, label: label || 'Untitled link' });
+  return toPlain(session);
 }
 
 async function getSession(id) {
-  return sessionPublic(await sessions.findOne({ id }));
+  await connect();
+  const session = await Session.findOne({ id });
+  return toPlain(session);
 }
 
 async function listSessions() {
-  const docs = await sessions.find({}).sort({ createdAt: -1 }).toArray();
-  return docs.map(sessionPublic);
+  await connect();
+  const sessions = await Session.find().sort({ createdAt: -1 });
+  return sessions.map(toPlain);
 }
 
 async function deleteSession(id) {
-  await sessions.deleteOne({ id });
-}
-
-async function clearSessionHistory(id) {
-  const doc = await sessions.findOneAndUpdate(
-    { id },
-    {
-      $set: {
-        locations: [],
-        lastLocation: null,
-        lastSeenAt: null,
-      },
-    },
-    { returnDocument: 'after' }
-  );
-  return sessionPublic(doc);
+  await connect();
+  await Session.deleteOne({ id });
 }
 
 async function startSharing(id) {
-  const now = new Date().toISOString();
-  const doc = await sessions.findOneAndUpdate(
+  await connect();
+  const session = await Session.findOneAndUpdate(
     { id },
-    { $set: { active: true, startedAt: now, stoppedAt: null } },
-    { returnDocument: 'after' }
+    { active: true, startedAt: new Date(), stoppedAt: null },
+    { new: true }
   );
-  return sessionPublic(doc);
+  return toPlain(session);
 }
 
 async function stopSharing(id) {
-  const now = new Date().toISOString();
-  const doc = await sessions.findOneAndUpdate(
+  await connect();
+  const session = await Session.findOneAndUpdate(
     { id },
-    { $set: { active: false, stoppedAt: now } },
-    { returnDocument: 'after' }
+    { active: false, stoppedAt: new Date() },
+    { new: true }
   );
-  return sessionPublic(doc);
+  return toPlain(session);
 }
 
 async function appendLocation(id, point) {
-  const doc = await sessions.findOneAndUpdate(
+  await connect();
+  const session = await Session.findOneAndUpdate(
     { id },
     {
-      $set: {
-        active: true,
-        lastSeenAt: point.timestamp,
-        lastLocation: point,
-      },
       $push: { locations: point },
+      $set: { lastSeenAt: point.timestamp },
     },
-    { returnDocument: 'after' }
+    { new: true }
   );
-  return sessionPublic(doc);
+  return toPlain(session);
 }
 
+// ---- Admin push subscriptions ----
+
 async function addAdminSubscription(subscription) {
-  await adminSubscriptions.updateOne(
+  await connect();
+  await AdminSub.updateOne(
     { endpoint: subscription.endpoint },
-    { $set: { ...subscription, updatedAt: new Date().toISOString() } },
+    { $set: subscription },
     { upsert: true }
   );
 }
 
 async function removeAdminSubscription(endpoint) {
-  await adminSubscriptions.deleteOne({ endpoint });
+  await connect();
+  await AdminSub.deleteOne({ endpoint });
 }
 
 async function listAdminSubscriptions() {
-  const docs = await adminSubscriptions.find({}).toArray();
-  return docs.map(({ _id, updatedAt, ...sub }) => sub);
+  await connect();
+  const subs = await AdminSub.find();
+  return subs.map(s => ({
+    endpoint: s.endpoint,
+    keys: s.keys,
+    expirationTime: s.expirationTime,
+  }));
 }
 
 module.exports = {
-  init,
   createSession,
   getSession,
   listSessions,
   deleteSession,
-  clearSessionHistory,
   startSharing,
   stopSharing,
   appendLocation,

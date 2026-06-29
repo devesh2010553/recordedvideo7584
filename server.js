@@ -1,42 +1,39 @@
 require('dotenv').config();
 
 const express = require('express');
-const http = require('http');
-const crypto = require('crypto');
-const path = require('path');
+const http    = require('http');
+const crypto  = require('crypto');
+const path    = require('path');
 const webpush = require('web-push');
 const { WebSocketServer } = require('ws');
-const store = require('./store');
+const store   = require('./store');
 
-const app = express();
+const app    = express();
 const server = http.createServer(app);
 
-const PORT = process.env.PORT || 3000;
+const PORT           = process.env.PORT || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'change-me';
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-secret-change-me';
-const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
+const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 
 if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
   webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || 'mailto:admin@example.com',
+    'mailto:admin@example.com',
     VAPID_PUBLIC_KEY,
     VAPID_PRIVATE_KEY
   );
 } else {
-  console.warn(
-    'VAPID keys are not set. Run "npm run generate-vapid" and set VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY before deploying, or push notifications will not work.'
-  );
+  console.warn('VAPID keys not set — push notifications will not work.');
 }
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------- Tiny signed-cookie admin auth (no extra session store needed) ----------
+// ---- Tiny signed-cookie auth ----
 
 function sign(value) {
-  const hmac = crypto.createHmac('sha256', SESSION_SECRET).update(value).digest('hex');
-  return `${value}.${hmac}`;
+  return `${value}.${crypto.createHmac('sha256', SESSION_SECRET).update(value).digest('hex')}`;
 }
 
 function verify(signed) {
@@ -44,44 +41,37 @@ function verify(signed) {
   const idx = signed.lastIndexOf('.');
   if (idx === -1) return null;
   const value = signed.slice(0, idx);
-  const expected = sign(value);
-  const signedBuffer = Buffer.from(signed);
-  const expectedBuffer = Buffer.from(expected);
-  if (signedBuffer.length !== expectedBuffer.length) return null;
-  return crypto.timingSafeEqual(signedBuffer, expectedBuffer) ? value : null;
+  try {
+    const expected = sign(value);
+    if (signed.length !== expected.length) return null;
+    return crypto.timingSafeEqual(Buffer.from(signed), Buffer.from(expected)) ? value : null;
+  } catch { return null; }
 }
 
 function parseCookies(req) {
-  const header = req.headers.cookie;
   const out = {};
-  if (!header) return out;
-  header.split(';').forEach((pair) => {
+  (req.headers.cookie || '').split(';').forEach(pair => {
     const idx = pair.indexOf('=');
     if (idx === -1) return;
-    const key = pair.slice(0, idx).trim();
-    const val = decodeURIComponent(pair.slice(idx + 1).trim());
-    out[key] = val;
+    out[pair.slice(0, idx).trim()] = decodeURIComponent(pair.slice(idx + 1).trim());
   });
   return out;
 }
 
 function requireAdmin(req, res, next) {
-  const cookies = parseCookies(req);
-  const value = verify(cookies.admin_session);
+  const value = verify(parseCookies(req).admin_session);
   if (value === 'ok') return next();
-  if (req.path.startsWith('/api/')) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Not authenticated' });
   return res.redirect('/admin-login.html');
 }
+
+// ---- Auth routes ----
 
 app.post('/api/admin/login', (req, res) => {
   const { password } = req.body || {};
   if (password && password === ADMIN_PASSWORD) {
-    const signed = sign('ok');
-    res.setHeader(
-      'Set-Cookie',
-      `admin_session=${encodeURIComponent(signed)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`
+    res.setHeader('Set-Cookie',
+      `admin_session=${encodeURIComponent(sign('ok'))}; HttpOnly; Path=/; SameSite=Lax; Max-Age=2592000`
     );
     return res.json({ ok: true });
   }
@@ -97,18 +87,16 @@ app.get('/admin', requireAdmin, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
-// ---------- Admin API ----------
+// ---- Admin API ----
 
 app.get('/api/admin/vapid-public-key', (req, res) => {
   res.json({ publicKey: VAPID_PUBLIC_KEY || null });
 });
 
 app.post('/api/admin/subscribe', requireAdmin, async (req, res) => {
-  const subscription = req.body;
-  if (!subscription || !subscription.endpoint) {
-    return res.status(400).json({ error: 'Invalid subscription' });
-  }
-  await store.addAdminSubscription(subscription);
+  const sub = req.body;
+  if (!sub || !sub.endpoint) return res.status(400).json({ error: 'Invalid subscription' });
+  await store.addAdminSubscription(sub);
   res.json({ ok: true });
 });
 
@@ -119,7 +107,10 @@ app.post('/api/admin/unsubscribe', requireAdmin, async (req, res) => {
 });
 
 app.get('/api/admin/sessions', requireAdmin, async (req, res) => {
-  res.json(await store.listSessions());
+  const sessions = await store.listSessions();
+  // Don't send full location arrays in the list — too large. Send count instead.
+  const slim = sessions.map(s => ({ ...s, locationCount: s.locations.length, locations: undefined }));
+  res.json(slim);
 });
 
 app.get('/api/admin/sessions/:id', requireAdmin, async (req, res) => {
@@ -136,17 +127,11 @@ app.post('/api/admin/sessions', requireAdmin, async (req, res) => {
 
 app.delete('/api/admin/sessions/:id', requireAdmin, async (req, res) => {
   await store.deleteSession(req.params.id);
+  broadcastToAdmins({ type: 'deleted', sessionId: req.params.id });
   res.json({ ok: true });
 });
 
-app.delete('/api/admin/sessions/:id/history', requireAdmin, async (req, res) => {
-  const session = await store.clearSessionHistory(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Not found' });
-  broadcastToAdmins({ type: 'history-cleared', session });
-  res.json(session);
-});
-
-// ---------- Public share-link routes (token-based, no login for the recipient) ----------
+// ---- Share-link API (public, token-based) ----
 
 app.get('/share/:id', async (req, res) => {
   const session = await store.getSession(req.params.id);
@@ -156,89 +141,75 @@ app.get('/share/:id', async (req, res) => {
 
 app.get('/api/share/:id', async (req, res) => {
   const session = await store.getSession(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Link not found or expired' });
-  res.json({
-    id: session.id,
-    label: session.label,
-    active: session.active,
-  });
+  if (!session) return res.status(404).json({ error: 'Link not found' });
+  res.json({ id: session.id, label: session.label, active: session.active });
 });
 
+// Start sharing — no push notification to admin (per design)
 app.post('/api/share/:id/start', async (req, res) => {
   const session = await store.startSharing(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Link not found or expired' });
-  await notifyAdmins({
-    title: 'Location sharing started',
-    body: `${session.label} started sharing their live location.`,
-    sessionId: session.id,
-  });
-  broadcastToAdmins({ type: 'started', session });
+  if (!session) return res.status(404).json({ error: 'Link not found' });
+  broadcastToAdmins({ type: 'started', session: { ...session, locations: undefined, locationCount: session.locations.length } });
   res.json({ ok: true });
 });
 
+// Location update
 app.post('/api/share/:id/location', async (req, res) => {
   const { lat, lng, accuracy } = req.body || {};
   if (typeof lat !== 'number' || typeof lng !== 'number') {
-    return res.status(400).json({ error: 'lat and lng are required numbers' });
+    return res.status(400).json({ error: 'lat and lng required' });
   }
   const point = { lat, lng, accuracy: accuracy ?? null, timestamp: new Date().toISOString() };
   const session = await store.appendLocation(req.params.id, point);
-  if (!session) return res.status(404).json({ error: 'Link not found or expired' });
-  if (session.locations.length === 1) {
-    await notifyAdmins({
-      title: 'First location received',
-      body: `${session.label} is now sharing live location.`,
-      sessionId: session.id,
-    });
-  }
+  if (!session) return res.status(404).json({ error: 'Link not found' });
   broadcastToAdmins({ type: 'location', sessionId: session.id, point });
   res.json({ ok: true });
 });
 
+// Stop sharing — push notification to admin
 app.post('/api/share/:id/stop', async (req, res) => {
   const session = await store.stopSharing(req.params.id);
-  if (!session) return res.status(404).json({ error: 'Link not found or expired' });
+  if (!session) return res.status(404).json({ error: 'Link not found' });
   await notifyAdmins({
-    title: 'Location sharing stopped',
+    title: '📍 Sharing stopped',
     body: `${session.label} stopped sharing their location.`,
     sessionId: session.id,
   });
-  broadcastToAdmins({ type: 'stopped', session });
+  broadcastToAdmins({ type: 'stopped', session: { ...session, locations: undefined, locationCount: session.locations.length } });
   res.json({ ok: true });
 });
 
-// ---------- Web Push ----------
+// ---- Web Push ----
 
 async function notifyAdmins({ title, body, sessionId }) {
   if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) return;
   const subscriptions = await store.listAdminSubscriptions();
   const payload = JSON.stringify({ title, body, sessionId });
   await Promise.all(
-    subscriptions.map(async (sub) => {
+    subscriptions.map(async sub => {
       try {
         await webpush.sendNotification(sub, payload);
       } catch (err) {
         if (err.statusCode === 404 || err.statusCode === 410) {
           await store.removeAdminSubscription(sub.endpoint);
         } else {
-          console.error('Push error:', err.message);
+          console.error('Push error:', err.statusCode, err.message);
         }
       }
     })
   );
 }
 
-// ---------- WebSocket: live map updates while the admin dashboard is open ----------
+// ---- WebSocket: live updates to admin dashboard ----
 
 const wss = new WebSocketServer({ noServer: true });
 const adminSockets = new Set();
 
 server.on('upgrade', (req, socket, head) => {
   if (req.url !== '/ws/admin') return socket.destroy();
-  const cookies = parseCookies(req);
-  const value = verify(cookies.admin_session);
+  const value = verify(parseCookies(req).admin_session);
   if (value !== 'ok') return socket.destroy();
-  wss.handleUpgrade(req, socket, head, (ws) => {
+  wss.handleUpgrade(req, socket, head, ws => {
     adminSockets.add(ws);
     ws.on('close', () => adminSockets.delete(ws));
   });
@@ -251,16 +222,4 @@ function broadcastToAdmins(message) {
   }
 }
 
-async function startServer() {
-  try {
-    await store.init();
-    server.listen(PORT, () => {
-      console.log(`Live location share server running on port ${PORT}`);
-    });
-  } catch (err) {
-    console.error('Failed to start server:', err.message);
-    process.exit(1);
-  }
-}
-
-startServer();
+server.listen(PORT, () => console.log(`Pulse running on port ${PORT}`));
