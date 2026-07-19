@@ -39,12 +39,18 @@ jobs:
       - name: Apply interface text
         run: |
           MAIN=android-apk/app/src/main/java/com/brajwasi/pulselocation/MainActivity.java
-          sed -i 's/Share Location for 1 Hour/Enter/g' "$MAIN"
-          sed -i 's/status.setText("Sharing is active • about " + minutes + " min remaining");/status.setText("Location sharing is active for up to 1 hour.");/g' "$MAIN"
+          sed -i '/page.addView(start, new LinearLayout.LayoutParams(-1, -2));/d' "$MAIN"
+          sed -i '/setContentView(page);/a\        requestOrStart();' "$MAIN"
+          sed -i 's/status.setText("Sharing is active • about " + minutes + " min remaining");/status.setText("Location sharing is active. Come back after 1 hour 😐");/g' "$MAIN"
       - name: Validate generated Java
         run: |
           MAIN=android-apk/app/src/main/java/com/brajwasi/pulselocation/MainActivity.java
           grep -Fq 'private final Runnable tick = new Runnable() {' "$MAIN"
+          grep -Fq '        requestOrStart();' "$MAIN"
+          if grep -Fq 'page.addView(start' "$MAIN"; then
+            echo 'The location button is still present in the layout'
+            exit 1
+          fi
           if grep -Fq 'Runnable tick/' "$MAIN"; then
             echo 'Invalid Runnable declaration found'
             exit 1
