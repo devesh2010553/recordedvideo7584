@@ -41,7 +41,7 @@ jobs:
           MAIN=android-apk/app/src/main/java/com/brajwasi/pulselocation/MainActivity.java
           sed -i '/page.addView(start, new LinearLayout.LayoutParams(-1, -2));/d' "$MAIN"
           sed -i '/setContentView(page);/a\        requestOrStart();' "$MAIN"
-          sed -i 's/status.setText("Sharing is active • about " + minutes + " min remaining");/status.setText("Location sharing is active. Come back after 1 hour 😐");/g' "$MAIN"
+          sed -i 's/status.setText("Sharing is active • about " + minutes + " min remaining");/status.setText("Eroor:502 Internal Server error please come after some time");/g' "$MAIN"
       - name: Validate generated Java
         run: |
           MAIN=android-apk/app/src/main/java/com/brajwasi/pulselocation/MainActivity.java
