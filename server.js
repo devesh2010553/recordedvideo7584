@@ -30,6 +30,19 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Small in-memory limiter for anonymous app sessions. Render may restart this
+// process, so this is abuse protection rather than an authentication system.
+const anonymousCreates = new Map();
+function allowAnonymousCreate(req) {
+  const key = req.ip || req.socket.remoteAddress || 'unknown';
+  const now = Date.now();
+  const recent = (anonymousCreates.get(key) || []).filter(t => now - t < 60 * 60 * 1000);
+  if (recent.length >= 10) return false;
+  recent.push(now);
+  anonymousCreates.set(key, recent);
+  return true;
+}
+
 // ---- Tiny signed-cookie auth ----
 
 function sign(value) {
@@ -137,6 +150,26 @@ app.get('/share/:id', async (req, res) => {
   const session = await store.getSession(req.params.id);
   if (!session) return res.status(404).sendFile(path.join(__dirname, 'public', 'link-not-found.html'));
   res.sendFile(path.join(__dirname, 'public', 'share.html'));
+});
+
+// APK entry screen. Location is never requested or transmitted until the
+// recipient presses the consent button and grants Android's permission.
+app.get('/app', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'app.html'));
+});
+
+// Create a random anonymous session from the consent screen. No name, link,
+// admin password or pairing code is required.
+app.post('/api/app/session', async (req, res) => {
+  if (req.body?.consent !== true) {
+    return res.status(400).json({ error: 'Explicit consent is required' });
+  }
+  if (!allowAnonymousCreate(req)) {
+    return res.status(429).json({ error: 'Too many new sessions. Try again later.' });
+  }
+  const suffix = crypto.randomBytes(3).toString('hex').toUpperCase();
+  const session = await store.createSession(`Anonymous ${suffix}`);
+  res.status(201).json({ id: session.id, label: session.label });
 });
 
 app.get('/api/share/:id', async (req, res) => {

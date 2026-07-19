@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#07111f">
+  <title>Share live location</title>
+  <style>
+    :root{font-family:Inter,system-ui,sans-serif;color-scheme:dark}*{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;background:radial-gradient(circle at 50% 18%,#173b5f,#07111f 55%);color:#f7fbff;padding:20px}
+    main{width:min(100%,430px);background:#0d1b2bcc;border:1px solid #ffffff22;border-radius:28px;padding:28px;box-shadow:0 20px 70px #0008;text-align:center}
+    .pin{width:76px;height:76px;margin:auto;display:grid;place-items:center;border-radius:24px;background:#35d07f22;font-size:38px}
+    h1{font-size:27px;margin:20px 0 10px}.lead{color:#bdcad8;line-height:1.55;margin:0 0 22px}
+    .notice{text-align:left;background:#ffffff0b;border:1px solid #ffffff18;border-radius:16px;padding:15px;color:#dce7f2;font-size:14px;line-height:1.45;margin-bottom:20px}
+    button{width:100%;border:0;border-radius:16px;padding:16px;font-weight:800;font-size:16px;cursor:pointer}
+    #start{background:#35d07f;color:#042113}#stop{background:#ff6262;color:#270707;margin-top:10px}button:disabled{opacity:.55;cursor:not-allowed}
+    #status{min-height:48px;margin:18px 0 0;color:#a9bbcc;font-size:14px;line-height:1.45}.active{color:#63e59d!important}.error{color:#ff9d9d!important}
+    .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#35d07f;margin-right:7px;box-shadow:0 0 0 6px #35d07f22}
+    small{display:block;color:#8395a7;margin-top:16px;line-height:1.4}
+  </style>
+</head>
+<body><main>
+  <div class="pin">📍</div>
+  <h1>Share your live location</h1>
+  <p class="lead">Only continue if you voluntarily want to share your current location with the administrator.</p>
+  <div class="notice"><b>You stay in control.</b><br>Nothing is sent before you tap the button and approve Android's location permission. Keep this screen open while sharing. Tap Stop at any time.</div>
+  <button id="start">Allow &amp; Start Sharing</button>
+  <button id="stop" hidden>Stop Sharing</button>
+  <p id="status">Ready. No location has been shared.</p>
+  <small>Android may stop browser-based updates when the app is closed or battery saver is active.</small>
+</main>
+<script>
+  const startBtn=document.querySelector('#start'),stopBtn=document.querySelector('#stop'),statusEl=document.querySelector('#status');
+  let sessionId=null,watchId=null,lastSent=0,retryTimer=null;
+  const status=(text,kind='')=>{statusEl.textContent=text;statusEl.className=kind};
+  async function request(url,options={}){
+    const response=await fetch(url,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})}});
+    const body=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(body.error||`Server error ${response.status}`);
+    return body;
+  }
+  async function sendPosition(position){
+    if(!sessionId)return;
+    const now=Date.now();if(now-lastSent<4000)return;lastSent=now;
+    try{
+      await request(`/api/share/${encodeURIComponent(sessionId)}/location`,{method:'POST',body:JSON.stringify({lat:position.coords.latitude,lng:position.coords.longitude,accuracy:position.coords.accuracy})});
+      status(`Live location shared • accuracy about ${Math.round(position.coords.accuracy)} m`,'active');
+    }catch(error){status('Connection lost. Keeping location active and retrying…','error');lastSent=0}
+  }
+  function locationError(error){
+    const messages={1:'Location permission was denied. Enable Location permission in Android Settings and try again.',2:'Location is unavailable. Turn on GPS and mobile data/Wi-Fi, then try again.',3:'GPS is taking longer than expected. Move near a window or outdoors; the app is still retrying.'};
+    status(messages[error.code]||'Could not obtain location. Please try again.','error');
+    if(error.code!==1&&!retryTimer)retryTimer=setTimeout(()=>{retryTimer=null;beginWatch(false)},5000);
+  }
+  function beginWatch(highAccuracy=true){
+    if(watchId!==null)navigator.geolocation.clearWatch(watchId);
+    watchId=navigator.geolocation.watchPosition(sendPosition,locationError,{enableHighAccuracy:highAccuracy,maximumAge:5000,timeout:highAccuracy?20000:45000});
+    if(highAccuracy)setTimeout(()=>{if(lastSent===0&&sessionId)beginWatch(false)},22000);
+  }
+  startBtn.onclick=async()=>{
+    if(!navigator.geolocation)return status('This device does not support location sharing.','error');
+    startBtn.disabled=true;status('Preparing a new anonymous session…');
+    try{
+      const session=await request('/api/app/session',{method:'POST',body:JSON.stringify({consent:true})});
+      sessionId=session.id;
+      await request(`/api/share/${encodeURIComponent(sessionId)}/start`,{method:'POST'});
+      startBtn.hidden=true;stopBtn.hidden=false;status('Waiting for Android location permission…');beginWatch(true);
+    }catch(error){status(error.message,'error');startBtn.disabled=false}
+  };
+  stopBtn.onclick=async()=>{
+    stopBtn.disabled=true;if(watchId!==null)navigator.geolocation.clearWatch(watchId);watchId=null;
+    try{if(sessionId)await request(`/api/share/${encodeURIComponent(sessionId)}/stop`,{method:'POST'});}catch{}
+    sessionId=null;lastSent=0;stopBtn.hidden=true;stopBtn.disabled=false;startBtn.hidden=false;startBtn.disabled=false;status('Sharing stopped. No location is being sent.');
+  };
+  window.addEventListener('beforeunload',()=>{if(sessionId)navigator.sendBeacon(`/api/share/${encodeURIComponent(sessionId)}/stop`,new Blob(['{}'],{type:'application/json'}))});
+</script></body></html>
