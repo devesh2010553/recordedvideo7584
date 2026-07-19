@@ -175,10 +175,15 @@ app.get('/api/share/:id', async (req, res) => {
   res.json({ id: session.id, label: session.label, active: session.active });
 });
 
-// Start sharing — no push notification to admin (per design)
+// Start sharing — push notification to admin
 app.post('/api/share/:id/start', async (req, res) => {
   const session = await store.startSharing(req.params.id);
   if (!session) return res.status(404).json({ error: 'Link not found' });
+  await notifyAdmins({
+    title: '📍 Location sharing started',
+    body: `${session.label} started sharing their location.`,
+    sessionId: session.id,
+  });
   broadcastToAdmins({ type: 'started', session: { ...session, locations: undefined, locationCount: session.locations.length } });
   res.json({ ok: true });
 });
