@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Pulse — Sharing location</title>
+<link rel="stylesheet" href="/css/styles.css" />
+<style>
+  html, body {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.25rem;
+    background: var(--paper);
+  }
+  .wrap { width: 100%; max-width: 380px; }
+
+  .screen {
+    padding: 2.5rem 2rem;
+    text-align: center;
+    border-radius: 24px;
+  }
+
+  /* ---- Loading ---- */
+  #loading-screen .spinner {
+    width: 40px; height: 40px;
+    border: 3px solid var(--mist);
+    border-top-color: var(--signal);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin: 0 auto 1.2rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ---- Active ---- */
+  #active-screen .big-radar {
+    position: relative;
+    width: 120px; height: 120px;
+    margin: 0 auto 1.5rem;
+  }
+  #active-screen .big-radar .dot {
+    position: absolute; top: 50%; left: 50%;
+    width: 18px; height: 18px;
+    margin: -9px 0 0 -9px;
+    border-radius: 50%;
+    background: var(--signal);
+  }
+  #active-screen .big-radar .ring {
+    position: absolute; top: 50%; left: 50%;
+    width: 18px; height: 18px;
+    margin: -9px 0 0 -9px;
+    border-radius: 50%;
+    border: 2.5px solid var(--signal);
+    animation: bigpulse 2.4s ease-out infinite;
+    opacity: 0;
+  }
+  #active-screen .big-radar .ring:nth-child(2) { animation-delay: 0.8s; }
+  #active-screen .big-radar .ring:nth-child(3) { animation-delay: 1.6s; }
+  @keyframes bigpulse {
+    0%   { transform: scale(1);   opacity: 0.5; }
+    100% { transform: scale(6.5); opacity: 0; }
+  }
+
+  .live-label {
+    font-family: var(--font-display);
+    font-size: 1.25rem;
+    font-weight: 700;
+    color: var(--ink);
+    margin-bottom: 0.4rem;
+  }
+  .live-sub {
+    font-size: 0.88rem;
+    color: var(--muted);
+    line-height: 1.5;
+    margin-bottom: 1.75rem;
+  }
+  .elapsed-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    background: var(--signal-soft);
+    color: var(--signal);
+    border-radius: 100px;
+    padding: 0.45rem 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    font-weight: 500;
+    margin-bottom: 2rem;
+  }
+  .elapsed-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--signal);
+    animation: dotpulse 1.8s ease-out infinite;
+  }
+  @keyframes dotpulse {
+    0%   { box-shadow: 0 0 0 0 rgba(22,163,148,.55); }
+    70%  { box-shadow: 0 0 0 5px transparent; }
+    100% { box-shadow: 0 0 0 0 transparent; }
+  }
+
+  .stop-btn {
+    width: 100%;
+    padding: 1rem;
+    font-size: 0.95rem;
+    background: transparent;
+    color: var(--muted);
+    border: 1.5px solid var(--mist);
+    border-radius: 14px;
+  }
+  .stop-btn:hover { border-color: var(--ember); color: var(--ember); }
+
+  /* ---- Error ---- */
+  #error-screen .icon {
+    font-size: 2.5rem;
+    margin-bottom: 1rem;
+  }
+  #error-screen h2 {
+    font-size: 1.1rem;
+    margin-bottom: 0.5rem;
+  }
+  #error-screen p { color: var(--muted); font-size: 0.88rem; line-height: 1.55; }
+
+  /* ---- Stopped ---- */
+  #stopped-screen .check {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    background: var(--signal-soft);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.4rem;
+    margin: 0 auto 1.25rem;
+  }
+  #stopped-screen h2 { font-size: 1.1rem; margin-bottom: 0.4rem; }
+  #stopped-screen p { color: var(--muted); font-size: 0.88rem; line-height: 1.55; }
+
+  .footer { text-align: center; font-size: 0.7rem; color: var(--muted); margin-top: 1.25rem; opacity: 0.7; }
+  [hidden] { display: none !important; }
+
+  @media (prefers-reduced-motion: reduce) {
+    #active-screen .big-radar .ring { animation: none; }
+    .elapsed-dot { animation: none; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- Loading / requesting permission -->
+  <div id="loading-screen" class="card screen">
+    <div class="spinner"></div>
+    <p id="loading-message" style="color:var(--muted);font-size:.9rem;line-height:1.5;margin:0;">To share your live location, approve the browser permission request. Nothing is sent unless you allow it.</p>
+  </div>
+
+  <!-- Active sharing -->
+  <div id="active-screen" class="card screen" hidden>
+    <div class="big-radar">
+      <div class="ring"></div>
+      <div class="ring"></div>
+      <div class="dot"></div>
+    </div>
+    <div class="live-label">Sharing live location</div>
+    <div class="live-sub">Your location is being shared.<br>You can stop at any time below.</div>
+    <div class="elapsed-badge">
+      <span class="elapsed-dot"></span>
+      <span id="elapsed">00:00:00</span>
+    </div>
+    <button class="stop-btn" id="stop-btn">Stop sharing</button>
+  </div>
+
+  <!-- Error -->
+  <div id="error-screen" class="card screen" hidden>
+    <div class="icon">⚠️</div>
+    <h2 id="error-title">Location unavailable</h2>
+    <p id="error-msg">Enable location access for this site in your browser settings, then reload the page.</p>
+  </div>
+
+  <!-- Stopped -->
+  <div id="stopped-screen" class="card screen" hidden>
+    <div class="check">✓</div>
+    <h2>Sharing stopped</h2>
+    <p>Your location is no longer being sent. You can close this page.</p>
+  </div>
+
+  <p class="footer">Pulse · you control when sharing starts and stops</p>
+</div>
+
+<script src="/js/share.js"></script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pulse — Admin</title>
+<link rel="stylesheet" href="/css/styles.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  body { padding: 1.25rem 1rem; min-height: 100vh; }
+  .shell { max-width: 780px; margin: 0 auto; }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 1.75rem;
+  }
+  .wordmark {
+    font-family: var(--font-display); font-size: 1.15rem; font-weight: 700;
+    letter-spacing: -0.02em; display: flex; align-items: center; gap: 8px;
+  }
+  .topbar-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+
+  .panel { padding: 1.35rem 1.35rem; margin-bottom: 1.1rem; }
+  .panel h2 { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.9rem; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; font-family: var(--font-mono); }
+
+  .create-row { display: flex; gap: 0.6rem; }
+  .create-row input {
+    flex: 1; padding: 0.7rem 0.9rem; border: 1.5px solid var(--mist);
+    border-radius: 10px; font-family: var(--font-body); font-size: 0.9rem;
+    background: var(--paper);
+  }
+  .create-row input:focus { outline: 2px solid var(--signal); border-color: var(--signal); }
+
+  .new-link-box {
+    display: none; margin-top: 0.9rem; padding: 0.75rem 1rem;
+    background: var(--signal-soft); border-radius: 10px;
+    align-items: center; justify-content: space-between; gap: 0.6rem;
+  }
+  .new-link-text {
+    font-family: var(--font-mono); font-size: 0.78rem;
+    word-break: break-all; color: var(--ink); flex: 1;
+  }
+
+  .session-card {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0.9rem 0.5rem; border-bottom: 1px solid var(--mist);
+    cursor: pointer; border-radius: 8px; transition: background 0.1s;
+  }
+  .session-card:last-child { border-bottom: none; }
+  .session-card:hover { background: var(--paper); }
+  .session-label { font-weight: 600; font-size: 0.93rem; display: flex; align-items: center; }
+  .session-meta { font-size: 0.76rem; color: var(--muted); margin-top: 3px; }
+  .empty-note { color: var(--muted); font-size: 0.85rem; }
+
+  /* Detail view */
+  #detail-view { display: none; }
+  .back-btn {
+    background: none; border: none; padding: 0 0 0.75rem; cursor: pointer;
+    font-size: 0.85rem; font-weight: 600; color: var(--muted); font-family: var(--font-body);
+  }
+  .back-btn:hover { color: var(--ink); }
+
+  .detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
+  .detail-title { font-size: 1.1rem; font-family: var(--font-display); }
+  .detail-live { display: flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 600; }
+
+  .stat-row {
+    display: flex; gap: 1.25rem; flex-wrap: wrap;
+    font-family: var(--font-mono); font-size: 0.76rem; color: var(--muted);
+    margin-top: 0.9rem;
+  }
+
+  /* History */
+  .history-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem;
+  }
+  .history-wrap {
+    max-height: 260px; overflow-y: auto;
+    border: 1px solid var(--mist); border-radius: 10px;
+  }
+  .history-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    font-family: var(--font-mono); font-size: 0.76rem;
+    border-bottom: 1px solid var(--mist);
+    align-items: center;
+  }
+  .history-row:last-child { border-bottom: none; }
+  .history-row.new-point { background: var(--signal-soft); }
+  .history-coords { color: var(--ink); }
+  .history-acc { color: var(--muted); text-align: right; }
+  .history-time { color: var(--muted); text-align: right; white-space: nowrap; }
+
+  .danger-row { text-align: right; margin-top: 0.75rem; }
+  .danger-link { background: none; border: none; cursor: pointer; color: var(--ember); font-size: 0.8rem; font-family: var(--font-body); }
+  .danger-link:hover { text-decoration: underline; }
+
+  @media (max-width: 480px) {
+    .history-row { grid-template-columns: 1fr auto; }
+    .history-acc { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <div class="topbar">
+    <div class="wordmark">
+      <span class="status-dot" id="conn-dot"></span>Pulse
+    </div>
+    <div class="topbar-actions">
+      <button class="btn-ghost" id="notif-btn">Enable alerts</button>
+      <button class="btn-ghost" id="logout-btn">Sign out</button>
+    </div>
+  </div>
+
+  <!-- List view -->
+  <div id="list-view">
+    <div class="card panel">
+      <h2>New sharing link</h2>
+      <div class="create-row">
+        <input id="label-input" placeholder="e.g. Dad's trip, Field visit #3" maxlength="80" />
+        <button class="btn-primary" id="create-btn">Create link</button>
+      </div>
+      <div class="new-link-box" id="new-link-box">
+        <span class="new-link-text" id="new-link-text"></span>
+        <button class="btn-ghost" id="copy-btn" style="white-space:nowrap;flex-shrink:0;">Copy</button>
+      </div>
+    </div>
+
+    <div class="card panel">
+      <h2>All links and anonymous app sessions</h2>
+      <div id="session-list"><p class="empty-note">No links yet.</p></div>
+    </div>
+  </div>
+
+  <!-- Detail view -->
+  <div id="detail-view">
+    <button class="back-btn" id="back-btn">← All links</button>
+    <div class="card panel">
+      <div class="detail-head">
+        <div class="detail-title" id="detail-label">—</div>
+        <div class="detail-live" id="detail-status">
+          <span class="status-dot"></span><span></span>
+        </div>
+      </div>
+
+      <div class="map" id="map" style="height:300px;border-radius:12px;"></div>
+      <div class="stat-row" id="detail-stats"></div>
+
+      <div class="history-header" style="margin-top:1.25rem;">
+        <h2 style="margin:0;">Location history</h2>
+      </div>
+      <div class="history-wrap">
+        <div id="history-list"></div>
+      </div>
+
+      <div class="danger-row">
+        <button class="danger-link" id="delete-btn">Delete this link &amp; all history</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="/js/admin.js"></script>
+</body>
+</html>

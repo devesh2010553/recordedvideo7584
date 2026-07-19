@@ -30,8 +30,7 @@ if (VAPID_PUBLIC_KEY && VAPID_PRIVATE_KEY) {
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Small in-memory limiter for anonymous app sessions. Render may restart this
-// process, so this is abuse protection rather than an authentication system.
+// Limit anonymous APK session creation without requiring a name or code.
 const anonymousCreates = new Map();
 function allowAnonymousCreate(req) {
   const key = req.ip || req.socket.remoteAddress || 'unknown';
@@ -152,14 +151,12 @@ app.get('/share/:id', async (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'share.html'));
 });
 
-// APK entry screen. Location is never requested or transmitted until the
-// recipient presses the consent button and grants Android's permission.
+// Consent screen used by the Android APK. It does not request location until
+// the recipient taps the start button and grants Android permission.
 app.get('/app', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
 
-// Create a random anonymous session from the consent screen. No name, link,
-// admin password or pairing code is required.
 app.post('/api/app/session', async (req, res) => {
   if (req.body?.consent !== true) {
     return res.status(400).json({ error: 'Explicit consent is required' });

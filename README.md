@@ -10,19 +10,15 @@ Minimal, consent-first live location sharing. Share a link → recipient opens i
 - **Push notifications**: admin gets a push notification (even when browser is closed) when someone stops sharing
 - **MongoDB**: all data is stored in MongoDB Atlas — survives redeploys forever
 - **Delete history**: admin can delete any session and its full location history from the dashboard
-- **Two sharing modes**: keep admin-created share links, or use the Android app without a link
-- **Anonymous APK sessions**: after explicit consent, the app creates a random session such as `Anonymous A1B2C3`
+- **Android mode**: a consent-based APK can create a random anonymous session without a name, link, password, or pairing code
+- **Link recovery**: temporary GPS and connection timeouts no longer falsely report that a valid link expired
 
-## Android APK mode
+## Android APK source
 
-The Android Studio project is in `android-apk/` and is already configured for
-`https://recordedvideo7584.onrender.com/app`. The recipient does not enter a
-name, password, link, or pairing code. They open the app, read the consent
-notice, tap **Allow & Start Sharing**, and approve Android's permission dialog.
-
-Before building the APK, deploy this updated Node project so that `/app` and
-`POST /api/app/session` exist on Render. Then open `android-apk` in Android
-Studio and select **Build → Build APK(s)**.
+The complete Android Studio project is in `android-apk/` and points to
+`https://recordedvideo7584.onrender.com/app`. The recipient must open the app,
+tap **Allow & Start Sharing**, and approve Android's permission prompt. A random
+session such as `Anonymous A1B2C3` then appears in the existing admin dashboard.
 
 ## Deploy to Render
 
