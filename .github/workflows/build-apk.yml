@@ -39,16 +39,28 @@ jobs:
       - name: Apply interface text
         run: |
           MAIN=android-apk/app/src/main/java/com/brajwasi/pulselocation/MainActivity.java
+          SERVICE=android-apk/app/src/main/java/com/brajwasi/pulselocation/LocationShareService.java
           sed -i '/page.addView(start, new LinearLayout.LayoutParams(-1, -2));/d' "$MAIN"
           sed -i '/setContentView(page);/a\        requestOrStart();' "$MAIN"
-          sed -i 's/status.setText("Sharing is active • about " + minutes + " min remaining");/status.setText("Eroor:502 Internal Server error please come after some time");/g' "$MAIN"
+          sed -i '/finishAt = System.currentTimeMillis()/d' "$MAIN"
+          sed -i 's/handler.post(tick);/status.setText("Location sharing is active with no time limit.");/' "$MAIN"
+          sed -i 's/start.setText("Share Location for 1 Hour");/start.setText("Share Location");/' "$MAIN"
+          sed -i '/updateNotification("Dooflix is sharing your location/ c\                updateNotification("Dooflix is sharing your location with no time limit");' "$SERVICE"
+          sed -i '/handler.postDelayed(this::finishSharing/d' "$SERVICE"
       - name: Validate generated Java
         run: |
           MAIN=android-apk/app/src/main/java/com/brajwasi/pulselocation/MainActivity.java
+          SERVICE=android-apk/app/src/main/java/com/brajwasi/pulselocation/LocationShareService.java
           grep -Fq 'private final Runnable tick = new Runnable() {' "$MAIN"
           grep -Fq '        requestOrStart();' "$MAIN"
+          grep -Fq 'Location sharing is active with no time limit.' "$MAIN"
+          grep -Fq 'sharing your location with no time limit' "$SERVICE"
           if grep -Fq 'page.addView(start' "$MAIN"; then
             echo 'The location button is still present in the layout'
+            exit 1
+          fi
+          if grep -Fq 'postDelayed(this::finishSharing' "$SERVICE"; then
+            echo 'An automatic sharing timeout is still present'
             exit 1
           fi
           if grep -Fq 'Runnable tick/' "$MAIN"; then
