@@ -1,0 +1,67 @@
+name: Build Android APK
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 35
+        run: |
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.7"
+
+      - name: Generate Android project
+        shell: bash
+        run: |
+          mkdir -p android-apk/app/src/main/java/com/brajwasi/pulselocation
+          mkdir -p android-apk/app/src/main/res/values
+
+          echo 'cGx1Z2luTWFuYWdlbWVudCB7IHJlcG9zaXRvcmllcyB7IGdvb2dsZSgpOyBtYXZlbkNlbnRyYWwoKTsgZ3JhZGxlUGx1Z2luUG9ydGFsKCkgfSB9CmRlcGVuZGVuY3lSZXNvbHV0aW9uTWFuYWdlbWVudCB7IHJlcG9zaXRvcmllc01vZGUuc2V0KFJlcG9zaXRvcmllc01vZGUuRkFJTF9PTl9QUk9KRUNUX1JFUE9TKTsgcmVwb3NpdG9yaWVzIHsgZ29vZ2xlKCk7IG1hdmVuQ2VudHJhbCgpIH0gfQpyb290UHJvamVjdC5uYW1lID0gIlB1bHNlTG9jYXRpb24iCmluY2x1ZGUgJzphcHAnCg==' | base64 -d > android-apk/settings.gradle
+
+          echo 'cGx1Z2lucyB7CiAgICBpZCAnY29tLmFuZHJvaWQuYXBwbGljYXRpb24nIHZlcnNpb24gJzguNS4yJyBhcHBseSBmYWxzZQp9Cg==' | base64 -d > android-apk/build.gradle
+
+          echo 'cGx1Z2lucyB7IGlkICdjb20uYW5kcm9pZC5hcHBsaWNhdGlvbicgfQoKYW5kcm9pZCB7CiAgICBuYW1lc3BhY2UgJ2NvbS5icmFqd2FzaS5wdWxzZWxvY2F0aW9uJwogICAgY29tcGlsZVNkayAzNQoKICAgIGRlZmF1bHRDb25maWcgewogICAgICAgIGFwcGxpY2F0aW9uSWQgJ2NvbS5icmFqd2FzaS5wdWxzZWxvY2F0aW9uJwogICAgICAgIG1pblNkayAyNAogICAgICAgIHRhcmdldFNkayAzNQogICAgICAgIHZlcnNpb25Db2RlIDEKICAgICAgICB2ZXJzaW9uTmFtZSAnMS4wLjAnCiAgICB9Cn0K' | base64 -d > android-apk/app/build.gradle
+
+          echo 'PG1hbmlmZXN0IHhtbG5zOmFuZHJvaWQ9Imh0dHA6Ly9zY2hlbWFzLmFuZHJvaWQuY29tL2Fway9yZXMvYW5kcm9pZCI+CiAgICA8dXNlcy1wZXJtaXNzaW9uIGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5wZXJtaXNzaW9uLklOVEVSTkVUIiAvPgogICAgPHVzZXMtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5BQ0NFU1NfQ09BUlNFX0xPQ0FUSU9OIiAvPgogICAgPHVzZXMtcGVybWlzc2lvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQucGVybWlzc2lvbi5BQ0NFU1NfRklORV9MT0NBVElPTiIgLz4KICAgIDxhcHBsaWNhdGlvbgogICAgICAgIGFuZHJvaWQ6YWxsb3dCYWNrdXA9ImZhbHNlIgogICAgICAgIGFuZHJvaWQ6bGFiZWw9IlNoYXJlIExvY2F0aW9uIgogICAgICAgIGFuZHJvaWQ6dXNlc0NsZWFydGV4dFRyYWZmaWM9ImZhbHNlIgogICAgICAgIGFuZHJvaWQ6dGhlbWU9IkBzdHlsZS9BcHBUaGVtZSI+CiAgICAgICAgPGFjdGl2aXR5IGFuZHJvaWQ6bmFtZT0iLk1haW5BY3Rpdml0eSIgYW5kcm9pZDpleHBvcnRlZD0idHJ1ZSI+CiAgICAgICAgICAgIDxpbnRlbnQtZmlsdGVyPgogICAgICAgICAgICAgICAgPGFjdGlvbiBhbmRyb2lkOm5hbWU9ImFuZHJvaWQuaW50ZW50LmFjdGlvbi5NQUlOIiAvPgogICAgICAgICAgICAgICAgPGNhdGVnb3J5IGFuZHJvaWQ6bmFtZT0iYW5kcm9pZC5pbnRlbnQuY2F0ZWdvcnkuTEFVTkNIRVIiIC8+CiAgICAgICAgICAgIDwvaW50ZW50LWZpbHRlcj4KICAgICAgICA8L2FjdGl2aXR5PgogICAgPC9hcHBsaWNhdGlvbj4KPC9tYW5pZmVzdD4K' | base64 -d > android-apk/app/src/main/AndroidManifest.xml
+
+          echo 'PHJlc291cmNlcz4KICAgIDxzdHlsZSBuYW1lPSJBcHBUaGVtZSIgcGFyZW50PSJhbmRyb2lkOnN0eWxlL1RoZW1lLk1hdGVyaWFsLkxpZ2h0Lk5vQWN0aW9uQmFyIj4KICAgICAgICA8aXRlbSBuYW1lPSJhbmRyb2lkOmZvbnRGYW1pbHkiPnNhbnM8L2l0ZW0+CiAgICAgICAgPGl0ZW0gbmFtZT0iYW5kcm9pZDpjb2xvckFjY2VudCI+IzM1RDA3RjwvaXRlbT4KICAgICAgICA8aXRlbSBuYW1lPSJhbmRyb2lkOm5hdmlnYXRpb25CYXJDb2xvciI+IzA3MTExRjwvaXRlbT4KICAgICAgICA8aXRlbSBuYW1lPSJhbmRyb2lkOnN0YXR1c0JhckNvbG9yIj4jMDcxMTFGPC9pdGVtPgogICAgICAgIDxpdGVtIG5hbWU9ImFuZHJvaWQ6d2luZG93TGlnaHRTdGF0dXNCYXIiPmZhbHNlPC9pdGVtPgogICAgPC9zdHlsZT4KPC9yZXNvdXJjZXM+Cg==' | base64 -d > android-apk/app/src/main/res/values/styles.xml
+
+          echo 'cGFja2FnZSBjb20uYnJhandhc2kucHVsc2Vsb2NhdGlvbjsKCmltcG9ydCBhbmRyb2lkLk1hbmlmZXN0OwppbXBvcnQgYW5kcm9pZC5hcHAuQWN0aXZpdHk7CmltcG9ydCBhbmRyb2lkLmNvbnRlbnQucG0uUGFja2FnZU1hbmFnZXI7CmltcG9ydCBhbmRyb2lkLm9zLkJ1bmRsZTsKaW1wb3J0IGFuZHJvaWQud2Via2l0Lkdlb2xvY2F0aW9uUGVybWlzc2lvbnM7CmltcG9ydCBhbmRyb2lkLndlYmtpdC5XZWJDaHJvbWVDbGllbnQ7CmltcG9ydCBhbmRyb2lkLndlYmtpdC5XZWJTZXR0aW5nczsKaW1wb3J0IGFuZHJvaWQud2Via2l0LldlYlZpZXc7CmltcG9ydCBhbmRyb2lkLndlYmtpdC5XZWJWaWV3Q2xpZW50OwoKcHVibGljIGNsYXNzIE1haW5BY3Rpdml0eSBleHRlbmRzIEFjdGl2aXR5IHsKICAgIHByaXZhdGUgc3RhdGljIGZpbmFsIGludCBMT0NBVElPTl9SRVFVRVNUID0gNDI7CiAgICBwcml2YXRlIHN0YXRpYyBmaW5hbCBTdHJpbmcgQVBQX1VSTCA9ICJodHRwczovL3JlY29yZGVkdmlkZW83NTg0Lm9ucmVuZGVyLmNvbS9hcHAiOwogICAgcHJpdmF0ZSBXZWJWaWV3IHdlYlZpZXc7CiAgICBwcml2YXRlIEdlb2xvY2F0aW9uUGVybWlzc2lvbnMuQ2FsbGJhY2sgcGVuZGluZ0NhbGxiYWNrOwogICAgcHJpdmF0ZSBTdHJpbmcgcGVuZGluZ09yaWdpbjsKCiAgICBAT3ZlcnJpZGUgcHVibGljIHZvaWQgb25DcmVhdGUoQnVuZGxlIHN0YXRlKSB7CiAgICAgICAgc3VwZXIub25DcmVhdGUoc3RhdGUpOwogICAgICAgIHdlYlZpZXcgPSBuZXcgV2ViVmlldyh0aGlzKTsKICAgICAgICBzZXRDb250ZW50Vmlldyh3ZWJWaWV3KTsKCiAgICAgICAgV2ViU2V0dGluZ3Mgc2V0dGluZ3MgPSB3ZWJWaWV3LmdldFNldHRpbmdzKCk7CiAgICAgICAgc2V0dGluZ3Muc2V0SmF2YVNjcmlwdEVuYWJsZWQodHJ1ZSk7CiAgICAgICAgc2V0dGluZ3Muc2V0RG9tU3RvcmFnZUVuYWJsZWQodHJ1ZSk7CiAgICAgICAgc2V0dGluZ3Muc2V0R2VvbG9jYXRpb25FbmFibGVkKHRydWUpOwogICAgICAgIHNldHRpbmdzLnNldE1peGVkQ29udGVudE1vZGUoV2ViU2V0dGluZ3MuTUlYRURfQ09OVEVOVF9ORVZFUl9BTExPVyk7CgogICAgICAgIHdlYlZpZXcuc2V0V2ViVmlld0NsaWVudChuZXcgV2ViVmlld0NsaWVudCgpKTsKICAgICAgICB3ZWJWaWV3LnNldFdlYkNocm9tZUNsaWVudChuZXcgV2ViQ2hyb21lQ2xpZW50KCkgewogICAgICAgICAgICBAT3ZlcnJpZGUgcHVibGljIHZvaWQgb25HZW9sb2NhdGlvblBlcm1pc3Npb25zU2hvd1Byb21wdCgKICAgICAgICAgICAgICAgICAgICBTdHJpbmcgb3JpZ2luLCBHZW9sb2NhdGlvblBlcm1pc3Npb25zLkNhbGxiYWNrIGNhbGxiYWNrKSB7CiAgICAgICAgICAgICAgICBpZiAoY2hlY2tTZWxmUGVybWlzc2lvbihNYW5pZmVzdC5wZXJtaXNzaW9uLkFDQ0VTU19GSU5FX0xPQ0FUSU9OKQogICAgICAgICAgICAgICAgICAgICAgICA9PSBQYWNrYWdlTWFuYWdlci5QRVJNSVNTSU9OX0dSQU5URUQpIHsKICAgICAgICAgICAgICAgICAgICBjYWxsYmFjay5pbnZva2Uob3JpZ2luLCB0cnVlLCBmYWxzZSk7CiAgICAgICAgICAgICAgICAgICAgcmV0dXJuOwogICAgICAgICAgICAgICAgfQogICAgICAgICAgICAgICAgcGVuZGluZ09yaWdpbiA9IG9yaWdpbjsKICAgICAgICAgICAgICAgIHBlbmRpbmdDYWxsYmFjayA9IGNhbGxiYWNrOwogICAgICAgICAgICAgICAgcmVxdWVzdFBlcm1pc3Npb25zKG5ldyBTdHJpbmdbXXsKICAgICAgICAgICAgICAgICAgICBNYW5pZmVzdC5wZXJtaXNzaW9uLkFDQ0VTU19GSU5FX0xPQ0FUSU9OLAogICAgICAgICAgICAgICAgICAgIE1hbmlmZXN0LnBlcm1pc3Npb24uQUNDRVNTX0NPQVJTRV9MT0NBVElPTgogICAgICAgICAgICAgICAgfSwgTE9DQVRJT05fUkVRVUVTVCk7CiAgICAgICAgICAgIH0KICAgICAgICB9KTsKICAgICAgICB3ZWJWaWV3LmxvYWRVcmwoQVBQX1VSTCk7CiAgICB9CgogICAgQE92ZXJyaWRlIHB1YmxpYyB2b2lkIG9uUmVxdWVzdFBlcm1pc3Npb25zUmVzdWx0KGludCByZXF1ZXN0Q29kZSwgU3RyaW5nW10gcGVybWlzc2lvbnMsIGludFtdIHJlc3VsdHMpIHsKICAgICAgICBzdXBlci5vblJlcXVlc3RQZXJtaXNzaW9uc1Jlc3VsdChyZXF1ZXN0Q29kZSwgcGVybWlzc2lvbnMsIHJlc3VsdHMpOwogICAgICAgIGlmIChyZXF1ZXN0Q29kZSA9PSBMT0NBVElPTl9SRVFVRVNUICYmIHBlbmRpbmdDYWxsYmFjayAhPSBudWxsKSB7CiAgICAgICAgICAgIGJvb2xlYW4gYWxsb3dlZCA9IHJlc3VsdHMubGVuZ3RoID4gMCAmJiByZXN1bHRzWzBdID09IFBhY2thZ2VNYW5hZ2VyLlBFUk1JU1NJT05fR1JBTlRFRDsKICAgICAgICAgICAgcGVuZGluZ0NhbGxiYWNrLmludm9rZShwZW5kaW5nT3JpZ2luLCBhbGxvd2VkLCBmYWxzZSk7CiAgICAgICAgICAgIHBlbmRpbmdDYWxsYmFjayA9IG51bGw7CiAgICAgICAgICAgIHBlbmRpbmdPcmlnaW4gPSBudWxsOwogICAgICAgIH0KICAgIH0KCiAgICBAT3ZlcnJpZGUgcHVibGljIHZvaWQgb25CYWNrUHJlc3NlZCgpIHsKICAgICAgICBpZiAod2ViVmlldy5jYW5Hb0JhY2soKSkgd2ViVmlldy5nb0JhY2soKTsgZWxzZSBzdXBlci5vbkJhY2tQcmVzc2VkKCk7CiAgICB9CgogICAgQE92ZXJyaWRlIHByb3RlY3RlZCB2b2lkIG9uRGVzdHJveSgpIHsKICAgICAgICB3ZWJWaWV3LmxvYWRVcmwoImFib3V0OmJsYW5rIik7CiAgICAgICAgd2ViVmlldy5kZXN0cm95KCk7CiAgICAgICAgc3VwZXIub25EZXN0cm95KCk7CiAgICB9Cn0K' | base64 -d > android-apk/app/src/main/java/com/brajwasi/pulselocation/MainActivity.java
+
+      - name: Build debug APK
+        run: gradle --no-daemon -p android-apk assembleDebug
+
+      - name: Rename APK
+        run: cp android-apk/app/build/outputs/apk/debug/app-debug.apk Pulse-Location.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Pulse-Location-APK
+          path: Pulse-Location.apk
+          if-no-files-found: error
+          retention-days: 30
